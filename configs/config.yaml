@@ -1,0 +1,60 @@
+# ===================================================================
+#      Configuration File for EventMamba-FX (Optimized Structure)
+# ===================================================================
+
+# --- 运行设置 (Run Settings) ---
+run:
+  mode: train         # 运行模式: 'train' or 'evaluate'
+  experiment_name: event_denoising_mamba_v1
+  
+# --- 数据集设置 (Data Settings) ---
+data:
+  # 数据文件路径 (请根据您的实际情况修改)
+  train_path: "./data/simulated_events/train_data.txt"
+  val_path: "./data/simulated_events/val_data.txt"
+  test_path: "./data/simulated_events/test_data.txt"
+  
+  # 事件相机分辨率 (这是数据的固有属性)
+  resolution_h: 260
+  resolution_w: 346
+
+  # DataLoader 参数
+  sequence_length: 2048   # 输入给模型的序列长度
+  num_workers: 4          # 加载数据的进程数 (根据您的CPU核心数调整)
+
+# --- 模型架构设置 (Model Architecture Settings) ---
+model:
+  # 特征提取器输出的维度，同时也是Mamba嵌入层之前的输入维度
+  input_feature_dim: 32     
+  
+  # Mamba 骨干网络参数
+  d_model: 128            # Mamba 内部的工作维度
+  d_state: 16             # SSM 状态空间的维度 (关键参数, 影响速度和内存)
+  d_conv: 4               # Mamba 内部1D卷积核大小
+  expand: 2               # Mamba 块的扩展因子
+  n_layers: 4             # 堆叠的 Mamba 模块数量
+
+# --- 特征提取器算法设置 (Feature Extractor Algorithm Settings) ---
+feature_extractor:
+  # 在这里定义您的特征工程所需的所有算法超参数
+  
+  # PFD 粗滤阶段参数
+  coarse_time_window: 2000    # (δtc, in µs)
+  coarse_support_threshold: 1 # (μ)
+  coarse_neighborhood_size: 3 # (n x n)
+  
+  # PFD 精滤阶段参数
+  fine_time_window: 30000     # (δtf, in µs)
+  fine_neighborhood_size: 3   # (n x n)
+
+# --- 训练设置 (Training Settings) ---
+training:
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  checkpoint_dir: "./checkpoints" # 保存模型权重的目录
+
+# --- 评估设置 (Evaluation Settings) ---
+evaluation:
+  batch_size: 64
+  checkpoint_path: "./checkpoints/best_model.pth" # 评估时加载的模型路径
