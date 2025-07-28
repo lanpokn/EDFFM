@@ -1,0 +1,1095 @@
+Polarity-Focused Denoising for Event Cameras
+ Chenyang Shi
+ Wenzhuo Li
+ , Boyi Wei, Xiucheng Wang, Hanxiao Liu, Yibo Zhang
+ , Ningfang Song
+ Abstract—Event cameras, which are highly sensitive to light
+ intensity changes, often generate substantial noise during imag
+ing. Existing denoising methods either lack the speed for real-time
+ processing or struggle with dynamic scenes, mistakenly dis
+carding valid events. To address these issues, we propose a
+ novel dual-stage polarity-focused denoising (PFD) method that
+ leverages the consistency of polarity and its changes within local
+ pixel areas. Whether due to camera motion or dynamic scene
+ changes, the polarity and its changes in triggered events are
+ highly correlated with these movements, allowing for effective
+ noise handling. We introduce two versions: PFD-A, which excels
+ at reducing background activity (BA) noise, and PFD-B, which
+ is designed to address both BA and flicker noise. Both versions
+ are lightweight and computationally efficient. The experimental
+ results show that PFD outperforms benchmark methods in
+ terms of the SNR and ESR metrics, achieving state-of-the-art
+ performance across various datasets. Additionally, we propose
+ an FPGA implementation of PFD processes that handles each
+ event in just 7 clock cycles, ensuring real-time performance. The
+ codes are available at https://github.com/shicy17/PFD.
+ Index Terms—Event camera, denoising method, BA noise,
+ f
+ licker noise.
+ I. INTRODUCTION
+ EVENT cameras are bioinspired vision sensors. Unlike
+ traditional cameras that capture absolute light intensity
+ values through global exposure, event cameras encode relative
+ changes in light intensity, producing a sparse, asynchronous
+ stream of events. Each event is represented as a tuple e =
+ (x, y, p,t). This tuple signifies that at the pixel coordinates
+ (x, y), an event of polarity p ∈ {−1,+1} occurs at the
+ timestamp t. A positive polarity (ON) indicates an increase in
+ light intensity above the threshold, whereas a negative polarity
+ (OFF) indicates a decrease in intensity below the threshold.
+ This unique imaging approach endows event cameras with the
+ remarkable advantages of high temporal resolution, a high
+ dynamic range, and low power consumption. Thus, event
+ cameras outperform conventional cameras in a variety of
+ challenging scenarios, such as object detection [1], [2], [3],
+ Received 19 August 2024; revised 29 October 2024, 28 November 2024,
+ and 5 December 2024; accepted 14 December 2024. Date of publication
+ 17 December 2024; date of current version 7 May 2025. This article
+ was recommended by Associate Editor D. Grois. (Corresponding author:
+ Jing Jin.)
+ Chenyang Shi, Boyi Wei, Xiucheng Wang, Yibo Zhang, Wenzhuo Li,
+ Ningfang Song, and Jing Jin are with the School of Instrumentation and
+ Optoelectronic Engineering, Beihang University, Beijing 100191, China, and
+ also with the Tianmushan Laboratory, Hangzhou 311115, China (e-mail:
+ shicy@buaa.edu.cn; jinjing@buaa.edu.cn).
+ Hanxiao Liu is with the Department of Precision Instrument, Tsinghua
+ University, Beijing 100084, China.
+ Digital Object Identifier 10.1109/TCSVT.2024.3519430
+ ,
+ , and Jing Jin
+ motion analysis [4], [5], [6], [7], [8], simultaneous localiza
+tion and mapping (SLAM) [9], [10], [11], and navigation
+ [12].
+ However, the sensitivity of event cameras to light intensity
+ f
+ luctuations poses the challenge of generating significant noise
+ events among the triggered events. These noise events con
+sume valuable data transmission bandwidth, thereby increasing
+ the computational load and potentially compromising the
+ performance of downstream tasks. Given these implications,
+ the effective denoising of events emerges as a crucial and
+ fundamental process, pivotal to harnessing the full potential
+ of this innovative imaging pattern.
+ Event cameras are susceptible to various types of noise.
+ These can be broadly categorized into noise originating from
+ the pixel circuit and noise induced by external environmental
+ factors. Pixel circuit noise primarily comprises background
+ activity (BA) noise [13], hot noise [14], and 1/f noise (also
+ known as shot noise) [14]. Among these, BA noise is the
+ most prevalent, significantly affecting the signal-to-noise
+ ratio of the event stream. Hot noise, manifesting as pixel
+ corruption in event cameras, can be effectively reduced by
+ leveraging the event intensity of impacted pixels. The impact
+ of 1/f noise is minimal, posing negligible adverse effects on
+ the event flow. Conversely, flicker noise, caused by external
+ light interference, can be effectively filtered out using the
+ frequency of polarity changes in the events. Our primary
+ focus is on BA noise, which uniquely occurs without any
+ changes in light intensity in the scene. Simultaneously, while
+ addressing BA noise removal, we introduce a derivative
+ approach aimed at mitigating flicker noise.
+ Prior denoising methods predominantly rely on assess
+ing the spatiotemporal correlations, intensity, and motion
+ consistency of events. These methods exhibit commend
+able denoising capabilities under simple conditions. However,
+ their effectiveness markedly diminishes in scenarios involving
+ rapid camera movement and complex textures. While some
+ approaches maintain high performance under these conditions,
+ their computational complexity renders them unsuitable for
+ real-time applications.
+ Leveraging the polarity characteristics of events, we have
+ developed a polarity-focused denoising method (PFD) that is
+ both straightforward and highly effective. The proposed PFD
+ method not only accomplishes efficient noise reduction but
+ also operates at a notably rapid pace, making it well suited
+ for real-time implementation. We also deployed the hardware
+ implementation of PFD on a field-programmable gate array
+ (FPGA) to validate its efficiency. Our main contributions are
+ summarized as follows:
+ 1051-8215 © 2024 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence
+ and similar technologies. Personal use is permitted, but republication/redistribution requires IEEE permission.
+ See https://www.ieee.org/publications/rights/index.html for more information.
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+SHI et al.: POLARITY-FOCUSED DENOISING FOR EVENT CAMERAS
+ 4371
+ • A highly efficient and rapid, dual-stage polarity-focused
+ denoising (PFD) method for event cameras is proposed,
+ which achieves state-of-the-art performance on various
+ benchmark datasets.
+ • We introduce two versions of PFD: PFD-A, which tar
+gets the removal of BA noise, and PFD-B, which is
+ capable of eliminating both BA noise and flicker sig
+nals. Additionally, we have developed group-of-event and
+ event-by-event processing variants of PFD to streamline
+ its deployment.
+ • We design an efficient hardware implementation for
+ the proposed denoising method and verify it on
+ resource-limited FPGA hardware.
+ Note that a group-of-event process refers to accumulating
+ events over specified time intervals, followed by processing
+ the accumulated events in batches. In contrast, an event-by
+event process does not involve accumulation, and each event
+ is processed individually.
+ The remainder of this article is organized as follows. First,
+ Section II reviews recent works in this field. Next, we present
+ our proposed denoising method in Section III. The hardware
+ implementations of the proposed method are introduced in
+ Section IV. The experimental validation of this method is
+ presented in Section V. Finally, the article is concluded with
+ a discussion in Section VI and Section VII.
+ II. RELATED WORK
+ Denoising in event cameras is a critical and foundational
+ computing task that demands not only effective noise reduction
+ but also rapid computational processes. There are four main
+ types of denoising methods for event cameras: those based on
+ the spatiotemporal correlation of events [19], [22], [23], [24],
+ those utilizing event density [17], [25], [26], those relying on
+ motion consistency [27], [28], [29], [30], and learning-based
+ methods [18], [20], [31], [32], [33], [34].
+ Event-based denoising methods utilize spatiotemporal cor
+relation and event density, operating on the principle that noise
+ is unrelated to changes in scene light intensity. Liu et al. [22]
+ introduced the NNb method, which assesses the validity of
+ a current event by examining the presence of an event in
+ its spatiotemporal vicinity. While this approach is effective,
+ its performance is notably diminished in scenarios containing
+ rapid motion. Wu et al. [17] proposed a probabilistic undi
+rected graph model (PUGM). It transforms the BA denoising
+ problem into an energy optimization problem. However, its
+ calculation is extremely complex and cannot be run in real
+ time. Guo and Delbruck [19] proposed a double window filter
+ (DWF) specifically for BA noise removal. The DWF adeptly
+ establishes the spatiotemporal relationship of events between
+ two queues. Xu et al. [15] proposed a denoising method by
+ enhancing spatiotemporal correlations in events, distinguishing
+ valid signals from noise through the analysis of overlapping
+ events. However, the criterion used in these methods is highly
+ important. A criterion that is too simplistic risks excluding
+ valid events erroneously, whereas an overly complex criterion
+ can severely decelerate computational speed.
+ Methods based on motion consistency necessitate the esti
+mation of either the motion of the event camera or that
+ of moving objects within the scene. EV-Gait [28] discrim
+inates between noise and valid events through optical flow
+ estimation. Wang et al. [29] proposed an augmentation of
+ denoising processes with intensity maps. Mohamed et al.
+ [30] developed a noise reduction strategy leveraging event
+ clustering. However, these approaches are characterized by
+ computational complexity, limiting their applicability in real
+time scenarios.
+ Recently, numerous learning-based denoising methods have
+ been introduced, often delivering impressive denoising per
+formance. However, many of these methods necessitate
+ extra information sources or demand significant computing
+ resources, challenging the efficiency and resource constraints
+ fundamental to denoising algorithms. A lightweight multilayer
+ perceptron filter (MLPF) [19], [20] is specifically tailored for
+ denoising on embedded hardware. EDnCNN [31] leverages
+ active pixel sensor (APS) frames and inertial measurement
+ unit (IMU) data to estimate event probabilities, utilizing a
+ classification network to separate events from noise. Guided
+ event filtering (GEF) [32] introduces a frame-based camera to
+ guide the denoising of event cameras. However, the computa
+tional processes of these two methods are complex and require
+ additional information sources. EventZoom [18] achieves good
+ denoising performance, but it generates a new event sequence,
+ which compromises data integrity.
+ While existing methods have shown commendable denois
+ing capabilities, they are often costly because of their
+ computational complexity or supplementary data from extra
+ sensors. Moreover, the effectiveness of these methods sig
+nificantly decreases in scenes with textured backgrounds and
+ fast motions. This is primarily due to their inability to effec
+tively distinguish between noise and valid signals in moving
+ scenarios, where aliasing occurs. Furthermore, many of these
+ methods overlook the importance of event polarity, which is
+ a crucial factor in the denoising process. To address these
+ gaps, we propose a novel denoising method capitalizing on the
+ polarity of events. Our proposed method is adept at handling
+ both stationary and dynamic conditions of event cameras and
+ is designed to be sufficiently simple for a real-time process.
+ III. PROPOSED METHODS
+ In this section, we first introduce the coarse denoising
+ method, which is based on polarity-based spatiotemporal
+ correlation. Next, a fine denoising method that relies on
+ polarity-based motion consistency is proposed. Moreover,
+ we present both group-of-event and event-by-event implemen
+tations for the proposed fine denoising method.
+ A. Overview of the Proposed Method
+ The proposed method employs a dual-stage processing
+ approach, as shown in Figure 2. Initially, the event stream
+ undergoes processing through the polarity consistency-based
+ coarse filtering method. Subsequently, the events that
+ have been retained are further refined via the motion
+ consistency-based fine filtering method. This sequential pro
+cessing culminates in the output of a denoised event stream.
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+4372 IEEETRANSACTIONSONCIRCUITSANDSYSTEMSFORVIDEOTECHNOLOGY,VOL.35,NO.5,MAY2025
+ Fig.1. Qualitativecomparisonof theDND21[19]andECD17[21]datasetswith30%noise.Thedrivingsequencecapturesurbancar journeys, featuring
+ rapid turnsanddiversemovements.OurproposedPFD-Aexcels in thisenvironment andadeptlyhandles significant polaritychangesdue tomotion.Note
+ thatEZrepresents theEventZoommethod.
+ Fig.2. Computational structureof theproposedmethod.
+ B.PolarityConsistency-BasedCoarseDenoisingMethod
+ Thepolarityof anevent is indicativeof thedirectionof
+ variationinlight intensity.Eventcamerasboastexceptionally
+ high temporal resolution, allowing for a nuanced capture
+ of thesechanges.Withina sufficientlysmall spatiotemporal
+ vicinity, it is reasonable toassumeuniformity in light inten
+sity alterations. Consequently, this implies that the polarity
+ of eventsoccurringwithin this spatiotemporal neighborhood
+ remainsconsistent.We introduceacoarsedenoisingmethod
+ basedonpolarityconsistency,which isanadaptationof the
+ classicaldenoisingmethodNNb[22] thatutilizesspatiotem
+poralcorrelation.
+ Initially,wedefineapolaritytimestampmapMpt, sizedto
+ match the resolutionof the event camera. Eachcell inMp
+ stores the timestampof themost recent event. Specifically,
+ themapMON pt records the timestampsof the latest positive
+ events,whereas themapMOFF pt captures thoseof the latest
+ negativeevents.
+ MON
+ pt ={(x,y)|MON
+ pt (x,y)=t,p=+1} (1)
+ MOFF
+ pt ={(x,y)|MOFF
+ pt (x,y)=t,p=−1} (2)
+ For everyevent e=(x,y,p,t),weexamine itsn×n (n
+ isanoddnumber)neighborhoodS(x,y)onMON pt orMOFF pt
+ todetermine ifanyevent sharingthesamepolarityoccurred
+ withinthetimewindowδtc.Notethateacheventhas itsown
+ timewindow.
+ S={(x,y)|x−n−1
+ 2 ≤x≤x+n−1
+ 2 ,
+ y−n−1
+ 2 ≤y≤y+n−1
+ 2 } (3)
+ Incaseswhere anevent is triggeredat aboundary, only
+ its 5-neighborhood is considered, whereas for events at a
+ vertex,werestrictourexaminationtoits3-neighborhood.The
+ numberofeventswiththesamepolarityinthespatiotemporal
+ Fig.3. Polarityconsistency-basedcoarsedenoisingmethod.Inthisexample,
+ wecheckthe3×3neighborhoodofeachevent.Todeterminethevalidityof
+ acurrent event,wecheckfor thepresenceofµnearbyevents that share its
+ polarity.Forexample, ifµ=2andthepolarityofthecurrenteventispositive
+ (ON), itisdeemedvalidaccordingtoMON pt .Similarly, ifµ=1andtheevent
+ hasanegativepolarity(OFF), itmeets thevalidationcriteriaunderMOFF pt .
+ This approachensures that anevent is consideredsignificant onlywhen it
+ is part of a larger, consistent patternwithin its immediate spatiotemporal
+ neighborhood.
+ neighborhoodisNp,whichisdescribedasfollows:
+ Np=
+ 
+    
+    
+ (x,y)
+ I(t−MON pt (S(x,y))<δtc),p=+1
+ (x,y)
+ I(t−MOFF pt (S(x,y))<δtc),p=−1
+ (4)
+ where I(·) is an indicator function,which takes avalueof
+ 1whentheconditionissatisfiedand0otherwise.Anevent is
+ deemedavalidsignal if it satisfies thefollowingequation:
+ Np≥µ (5)
+ where µ is a parameter. Figure 3 depicts the calculation
+ process of the polarity consistency-based coarse denoising
+ method.
+ C.MotionConsistency-BasedFineDenoisingMethod
+ The event camera captures dynamic information that
+ exhibits inherentmotionconsistency.Forexample, theback
+groundmotion capturedduring themovement of a camera
+ aligns with its ownmotion, and themotionwithin each
+ partof independentdynamicobjects inthescene isuniform.
+ Wepositthateventsoccurringinaclosespatiotemporalneigh
+borhoodaretheresultofconsistentmotion,whereasthenoise
+ distribution ismotion independent. Basedon this principle,
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+SHIetal.:POLARITY-FOCUSEDDENOISINGFOREVENTCAMERAS 4373
+ weintroducearefineddenoisingmethodthatleveragesmotion
+ consistency.
+ 1)Theorem of Consistency in the Polarity Changes of
+ Events: We utilize the consistency in the polarity changes
+ of events todistinguishbetweeneffective signals andnoise.
+ Event cameras detect changes in brightness, which can be
+ mathematically linked to themotionofobjects in thescene.
+ Below, we present a proof that demonstrates howpolarity
+ changes ineventsarecausedbymotion.
+ Let L(x,y,t) represent the logarithmof thebrightnessat
+ a pixel (x,y) at timestamp t. The brightness is related to
+ the image intensity I(x,y,t) triggeredwhen the change in
+ brightness L(x,y,t)exceedsathresholdC:
+ L(x,y,t)=L(x,y,t)−L(x,y,t− t)≥C (6)
+ Consideranobjectmovinginthescenewithvelocityv=
+ (vx,vy). The position of the object changes over time as
+ follows:
+ x(t)=x(0)+vxt, y(t)=y(0)+vyt (7)
+ Under thebrightnessconstancyassumption, thebrightness
+ remainsconstantover time:
+ L(x(t),y(t),t)=L(x(0),y(0),0) (8)
+ Afirst-orderTaylorexpansionisusedforL(x,y,t)around
+ theinitialposition:
+ L(x(t),y(t),t)≈L(x(0),y(0),0)
+ + ∂L
+ ∂x vx+∂L
+ ∂y vy+∂L
+ ∂t t (9)
+ Thus, thechangeinbrightness isgivenby:
+ L(x,y,t)=∂L
+ ∂x vx+∂L
+ ∂y vy+∂L
+ ∂t (10)
+ Thepolaritypofanevent isdefinedas:
+ p=sign( L(x,y,t)) (11)
+ Substitutingtheexpressionfor L(x,y,t)gives:
+ p=sign ∂L
+ ∂x vx+∂L
+ ∂y vy+∂L
+ ∂t (12)
+ Thisderivationshowsthat thepolaritychangesdetectedby
+ anevent camera are adirect consequenceof objectmotion
+ in the scene. Consistent motion across a region results in
+ consistentpolaritychanges,whereasnoise,whichlacksmotion
+ consistency,doesnotexhibitacoherentpolaritypattern.This
+ approachcircumventstheneedforcomplextechniquessuchas
+ opticalflowestimationformotionassessment, therebymain
+tainingthesimplicityandefficacyofourdenoisingmethod.
+ 2)Method:Letusselectashort timewindowδtf.Wethen
+ defineagrid-shapedeventpolaritymapMp,aneventcounting
+ mapMc, andapolarityfrequencymapMf [35],whosesize
+ is thesameas theresolutionof theeventcamera.Eachpixel
+ ofMp recordsthepolarityof thelatestevent triggeredat that
+ pixel.
+ Mp={(x,y)|Mp(x,y)=pi} (13)
+ Fig.4. Anexampleof themotionconsistency-basedfinedenoisingmethod.
+ In this example,weexamine theneighborhoodof acurrent eventwithina
+ 3×3matrix. In this context, ayellowpixel signifies thepixelwhereone
+ polaritychangeof eventsoccurs,whereas apurple-bluepixel indicates the
+ pixelwithtwopolaritychangesofevents.Weassignavalueof1toτ.Onthe
+ leftside,denotedasMf ,wecalculateMa tobe3andNe tobe5.Following
+ Equation16,wecategorize thisevent asvalid.Conversely,ontheright side
+ withinMf , thepixelexperiencingthecurrenteventshowsnopolaritychange
+ within the timewindow.We then calculateMa tobe 6 andNe tobe 4.
+ AccordingtoEquation16, theevent is identifiedasnoise.
+ On theotherhand, eachpixel ofMf records thenumberof
+ polaritychangesof theevent triggeredat thatpixelwithinthe
+ selectedtimewindowδtf.
+ Mf(x,y)=
+ 
+  
+  
+ Mf(x,y)+1,Mp(x,y)·pi=−1
+ Mf(x,y),Mp(x,y)·pi=1
+ 0,Mp(x,y)=0
+ (14)
+ whereMf(x,y) represents the value of (x,y) onMf and
+ pi denotes the polarityof the latest event. An example of
+ Mf is shown inFigure5b. Polaritychanges typicallyoccur
+ at high-contrast edges as theobjectmoves.Mc records the
+ numberofevents triggeredineachpixel.
+ Next,wecalculatethetotalnumberMaofpolaritychanges
+ forall thepixelswithintheneighborhoodS(x,y).
+ Ma=
+ n
+ i=1
+ Mf((xi,yi)|S(x,y)) (15)
+ Foreachpixel inS(x,y),Ne isdefinedasthecountofpixels
+ that triggered at least one event within the specified time
+ windowδtf.We thencheckwhether thenumberofpolarity
+ changesoccurringat thecurrentpixelalignswiththeaverage
+ polarity changes in the nonemptyneighborhood. For pixels
+ withNe≥m(m>0),weestablish the followingcriteria to
+ differentiatevalideventsfromnoiseevents inouranalysis:
+ |Mf−Ma
+ Ne
+ |≤τ (16)
+ where τ is aparameter.Whenanevent satisfies these con
+ditions, it is classified as a valid event; conversely, if it
+ fails tomeet these criteria, it is deemed an invalid event.
+ Insummary, thiscriterionassesses theconsistencyofpolar
+ity changes across nonempty neighborhoods. The proposed
+ dual-stagedenoisingmethodwithEquation.16isnamedPFD
+A.Wedemonstrateanexampleofwhether anevent isvalid
+ ornot inFigure4.
+ Furthermore,wepropose anadditional criteriondesigned
+ toeliminateflickernoiseevents.Wefirstanalyzethecharac
+teristicsofflickernoiseandhowthepolaritychangedensity
+ criteriondistinguishes it fromtruemotionevents.
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+4374
+ IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 35, NO. 5, MAY 2025
+ Fig. 5. Demonstration of each step of PFD. (a) displays an event frame in the
+ driving sequence of the DND21 dataset [19] with 30% noise, where each pixel
+ captures the latest event. Positive and negative events are differentiated by
+ color, with red indicating positive events and blue indicating negative events.
+ (b) corresponds to this event frame, showcasing a polarity frequency map.
+ Color coding is used to represent the number of polarity changes: orange
+ for a single change and purple-blue for two changes or more within a pixel.
+ Polarity changes in events are strongly associated with motion. (c) depicts
+ the outcome achieved through the coarse denoising method. (d) presents the
+ outcomes following initial coarse denoising and subsequent fine denoising
+ with Equation 16.
+ Let D(x, y) = Ma(x,y)
+ Ne(x,y) represent the polarity change density
+ at pixel (x, y) over a time window δt, where Ma(x, y) is the
+ number of polarity changes and Ne(x, y) is the number of
+ events.
+ For flicker noise, which manifests as frequent, unstructured
+ polarity changes at the same pixel, the polarity change density
+ DFN(x, y) is much greater:
+ DFN(x, y) ≫ σ
+ (17)
+ where σ is the threshold.
+ In other words, the polarity change density in areas affected
+ by flickers is significantly greater than that in areas without
+ f
+ lickers. This difference in polarity change density is the
+ most distinguishing characteristic between the flickering and
+ nonflickering regions. Thus, we employ the density of polarity
+ changes within the neighborhood to identify and eliminate
+ f
+ licker events, which is described as follows:
+ Ma
+ Ne 
+≤σ
+ (18)
+ The proposed dual-stage denoising method with Equation.18
+ is named PFD-B.
+ We demonstrate each step of the PFD method in Figure 5.
+ Figure 5c illustrates the outcomes following coarse denoising,
+ while Figure 5d displays the further results after fine denoising
+ processing. Initially, coarse denoising effectively eliminates a
+ substantial portion of the noise, yet residual noise persists.
+ The subsequent fine denoising phase further eradicates the
+ remaining noise, demonstrating the efficacy of our proposed
+ dual-stage denoising approach.
+ 3) Event-by-Event Processing Version: Notably, while this
+ motion consistency-based fine denoising method primarily
+ Fig. 6. Data flow diagram of the hardware PFD-A.
+ addresses groups of events, it is also capable of processing
+ events on an individual basis. With just a few adjustments,
+ we outline the steps to implement this event-by-event pro
+cessing approach.
+ First, we establish the polarity change timestamp map Mpct,
+ characterized by its dimensions H×W×d. H and W represent
+ the height and width of the resolution of the event camera,
+ respectively, while d corresponds to the length of the first
+in, first-out (FIFO) queue. If a polarity change occurs in
+ comparison to the preceding event at the same pixel, the
+ timestamp of the current event is queued in Mpct(x, y).
+ Mn+1
+ pct (x, y) = Enqueue(Mn
+ pct(x, y),t)
+ (19)
+ where Enqueue(Mpct(x, y),t) denotes the process of insert
+ing timestamp t into the end of the queue Mpct(x,y).
+ Mn pct(x, y) symbolizes the state of the queue prior to the
+ insertion operation, whereas Mn+1
+ pct (x, y) represents the state
+ of the queue subsequent to the insertion of the element.
+ To process a current event e(x, y, p,t), we examine a
+ specific time window δtf, retracing from the timestamp of
+ this event. Note that each event has its own corresponding time
+ window. Specifically, we examine the number of timestamps
+ within the time range (t − δtf,t) in Mpct(x, y). In other
+ words, this denotes the number of polarity changes within δtf .
+ We subsequently apply the same evaluation in Equation.16
+ or 18 as previously conducted within the neighborhood S(x, y)
+ corresponding to this event.
+ IV. HARDWARE IMPLEMENTATION OF THE
+ PROPOSED METHOD ON AN FPGA
+ Event streams constitute a type of streaming data. Hardware
+ components such as FPGA and application-specific integrated
+ circuits (ASICs) are capable of delivering high-throughput,
+ low-latency streaming data processing circuits by leveraging
+ techniques such as data pipelines and data parallelism. There
+fore, these kinds of hardware are particularly well suited for
+ processing data from event cameras.
+ In this section, an FPGA-based implementation of the
+ proposed PFD-A method tailored for processing events on
+ an event-by-event basis is presented. The event-by-event pro
+cessing approach fully leverages the strengths of FPGA data
+ pipelines.
+ The hardware implementation comprises three key com
+ponents: a timestamp storage unit, a polarity consistency
+ calculation unit, and a motion consistency calculation unit.
+ The data flow diagram of the hardware PFD-A is depicted in
+ Figure 6.
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+SHI et al.: POLARITY-FOCUSED DENOISING FOR EVENT CAMERAS
+ 4375
+ The timestamp storage unit preserves the timestamps of
+ incoming events, with four random access memories (RAMs)
+ maintained at a size of W × H × B/N, where W and
+ H denote the pixel dimensions. Bit splicing is employed
+ on adjacent N pixels to increase the data retrieval speed.
+ B denotes the bit width of the data. Two of the RAMs
+ store the timestamps of the most recent positive and negative
+ events of each pixel (which correspond to MON
+ pt
+ and MOFF
+ pt
+ ),
+ facilitating polarity consistency evaluation. The remaining two
+ RAMs serve motion consistency assessment purposes: one
+ retains the polarity of the most recent event to detect polarity
+ changes (which corresponds to Mp), while the other stores
+ timestamps of the last d events triggering such changes (which
+ corresponds to Mpct). Note that the timestamp of an event is
+ allocated a 16-bit width, whereas the polarity of an event is
+ recorded in a 1-bit width. We employ bit-stitching to combine
+ timestamps for each pixel and utilize bit assignment for data
+ updates, increasing the calculation speed.
+ The polarity consistency calculation unit scrutinizes the
+ timestamp of events with the same polarity within the 3 ×
+ 3 pixel neighborhood, employing subtractors and accumulators
+ to calculate the number of events consistent with Equation 4.
+ When neighboring pixels are processed independently, calcu
+lations occur concurrently, ensuring swift execution.
+ The motion consistency calculation unit adopts a circuit
+ structure similar to the polarity consistency calculation unit.
+ Initially, it determines polarity changes for each pixel within
+ the neighborhood in parallel, culminating in judgment based
+ on Equation 16.
+ V. EXPERIMENTAL METHODOLOGY
+ In this section, the datasets for evaluation are first intro
+duced. The evaluation metrics and implementation details are
+ then illustrated. Finally, the experimental results are presented.
+ A. Datasets
+ Weadopt the benchmark datasets ECD17 [21], DND21 [19],
+ and E-MLB [36] for the evaluation of BA noise removal.
+ The DND21dataset was recorded using a DAVIS3461 mono
+ event camera with a resolution of 346×260, and ECD17 was
+ obtained using a DAVIS240C event camera with a resolution
+ of 240×180. DND21 and ECD17 are datasets inherently free
+ from noise. We incorporate noise into the dataset at various
+ intensities: 15%, 30%, and 50%. These percentages reflect
+ the proportion of noise relative to the total number of events
+ in the original sequence. The distribution of the introduced
+ noise follows a Poisson pattern, aligning with conventional
+ paradigms [15], [17], [19].
+ The E-MLB dataset is designed to replicate various light
+ing conditions by placing neutral density (ND) filters with
+ differing transmittances in front of the lens of the event
+ camera. This setup inherently introduces noise into the dataset,
+ simulating real-world environmental variations. The E-MLB
+ dataset comprises 96 sequences in total, encompassing a wide
+ range of motion speeds and complex features. Note that
+ 1[Online]. Available at: https://www.inivation.cn/?list=19
+ all 96 sequences in the E-MLB dataset are used for the
+ experiments.
+ Furthermore, we employ the light interference event dataset
+ (LIED) [35] to assess the efficacy of our proposed PFD-B
+ method in eliminating flicker noise. This dataset is curated to
+ benchmark the performance of algorithms designed to mitigate
+ light interference phenomena, including strobing.
+ B. Evaluation Metrics
+ 1) Evaluation Metrics for Removing BA Noise: We employ
+ multiple sets of established metrics to assess the effectiveness
+ of our proposed denoising method. These include the noise
+ event removal rate (NeRr), valid event removal rate (VeRr),
+ and signal-to-noise ratio (SNR). They can be described as
+ follows.
+ NeRr = Nnr
+ Nn
+ VeRr = Nvr
+ Nv
+ SNR =10·lgNv − Nvr
+ (20)
+ (21)
+ (22)
+ Nn − Nnr
+ where Nn represents the total noise events, Nnr represents the
+ removed noise, Nv represents the total number of valid events,
+ and Nvr represents the mistakenly removed valid signals.
+ Accuracy =
+ Additionally, we evaluate the accuracy (ACC) [37].
+ T P +TN
+ T P +FP+FN+TN
+ (23)
+ where TP is a true positive, FP is a false positive, FN is a false
+ negative, and TN is a true negative. We refrain from utilizing
+ the true positive rate (TPR) and false positive rate (FPR) due
+ to their mutual exclusivity with VeRr and NeRr, respectively.
+ These metrics are selected in alignment with the evaluation
+ paradigms adopted by other baseline methods [16], [18], [19],
+ [31].
+ Moreover, we adopt the evaluation metric event structural
+ ratio (ESR) [36]. It utilizes the event contrast to evaluate the
+ performance of denoising methods and does not necessitate
+ prelabeling event sequences with valid signals or noise.
+ K
+ ESR =
+ (
+ i=1
+ K
+ ni(ni − 1)
+ N(N −1) )·(K −
+ i=1
+ (1 − M
+ N
+ )ni )
+ (24)
+ where K is the total number of pixels in an image of warped
+ events (IWE) [38], N is the overall number of events, and
+ ni represents the total number of events at pixel (xi, yi). M
+ refers to the reference number of events used for interpolation.
+ Detailed definitions of the ESR are available in E-MLB [36].
+ 2) Evaluation Metric for Removing Flicker Noise: We
+ adopt the filtering rate α [35] to evaluate the effectiveness of
+ our proposed method in removing stroboscopic light (flicker
+ noise).
+ α =(1− S0
+ S1
+ )
+ (25)
+ where S1 represents the number of all events in the pixel area
+ where the strobe light source is located and S0 represents the
+ number of events in this area after denoising.
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+4376
+ IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 35, NO. 5, MAY 2025
+ Fig. 7. Qualitative comparison on the E-MLB [36] dataset. 1, 4, 16, and 64 represent ND1, ND4, ND16, and ND64, respectively. The proposed PFD-A
+ method eliminates more noise while retaining more valid signals in sequences containing fast motion. The changing characteristics of event polarity caused
+ by fast motion essentially differ from those caused by noise so that PFD-A can fully play its role.
+ 3) Computational Performance: We utilize two metrics for
+ evaluating computing speed: throughput and process time per
+ event.
+ C. Implementation Details
+ For highly efficient implementation, the proposed method
+ is written in C++. The computing platform is a laptop with
+ an Intel(R) Core(TM) i7-12700H CPU and 32 GB of memory.
+ In the experiments, the following parameters are selected: time
+ window δtc = 25 ms and δtf = 25 ms, µ = 1, m = 3, σ = 1,
+ τ =1, n =3, and d =3.
+ The hardware PFD is implemented on an AVNET Ultra96
+V22 board, featuring the Xilinx Zynq ZU3EG System-on-Chip
+ (SoC). Its logic section comprises 154,000 system logic
+ units, including 70,560 lookup tables (LUTs), 141,120 flip
+f
+ lops (FFs), and 432 × 18k block random access memories
+ (BRAMs), with 7.6 Mb of memory and 360 digital signal
+ processor (DSP) units. High-level synthesis (HLS) is utilized
+ for the final design completion. The parameter N for bit
+ splicing is set to 4.
+ D. Experimental Results
+ 1) Comparisons of BA Noise Removal: The state-of-the-art
+ (SOTA) denoising methods DAS [15], IETS [16], PUGM [17],
+ EventZoom [18], DWF [19], and MLPF [19], [20] are adopted
+ for comparison. Note that all the event data are processed via
+ the proposed coarse denoising and fine denoising methods.
+ 2[Online]. Available at: https://www.avnet.com/wps/portal/us/products/
+ avnet-boards/avnet-board-families/ultra96-v2/
+ The quantitative results on the ECD17 and DND21 datasets
+ are shown in Figure 8 and Figure 9, respectively. The driving
+ sequence in DND21 and the slider_depth and urban sequences
+ in ECD17 are selected for comparison and contain the richest
+ features. The qualitative results are shown in Figure 1.
+ Note that the EventZoom method diverges from conven
+tional denoising approaches by producing denoised frames
+ instead of a denoised event stream. As a result, EventZoom
+ was not quantitatively evaluated on the DND21 and ECD17
+ datasets. To assess the efficacy of a denoising approach, it is
+ crucial to consider the four metrics of NeRr, VeRr, SNR, and
+ accuracy in a holistic manner. Although achieving a high SNR
+ is possible with elevated NeRr and VeRr, this does not neces
+sarily indicate an effective denoising outcome. The primary
+ concern is that valid events are retained only infrequently,
+ undermining the overall quality of the denoising process.
+ The experimental results indicate that our proposed PFD
+ method achieves unparalleled performance in terms of NeRr
+ and VeRr. By eliminating a greater amount of noise while
+ maximally preserving the effective signal, we also achieve
+ better SNR performance. While methods such as IETS and
+ DWFattain comparable NeRr values, they exhibit significantly
+ higher VeRr values. This indicates that a substantial number
+ of valid events are erroneously eliminated. Moreover, the
+ proposed PFD method outperforms the learning-based MLPF
+ method in terms of these metrics. Furthermore, our proposed
+ method demonstrates exceptional performance in terms of
+ ACC, particularly under high-noise conditions. Although the
+ ACC of our PFD method is slightly lower than that of PUGM
+ in the urban and slider_depth sequences, it is important to
+ note that the significantly lower NeRr of PUGM indicates
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+SHI et al.: POLARITY-FOCUSED DENOISING FOR EVENT CAMERAS
+ 4377
+ Fig. 8. Experimental results on the ECD17 dataset. The “*” symbol indicates the event-by-event processing version. An upward arrow ↑ indicates that
+ higher values are better, whereas a downward arrow ↓ signifies that lower values are preferable. The results for the slider_depth sequence are presented in
+ (a), (b), and (c), while the results for the urban sequence are shown in (d), (e), and (f). Specifically, (a) and (d) illustrate the NeRr and VeRr results, where a
+ higher NeRr and a lower VeRr indicate better performance. For each method, the data are displayed from left to right, corresponding to results under 15%,
+ 30%, and 50% noise levels, respectively. For example, in the IETS results, the three dark blue-gray columns on the left represent NeRr at 15%, 30%, and
+ 50% from left to right, while the three light blue-gray columns on the right correspond to VeRr at 15%, 30%, and 50% from left to right. All other data are
+ organized following this same arrangement. Figures (b) and (e) depict the SNR results, and (c) and (f) show the ACC results, with a higher ACC indicating
+ better denoising performance. These results demonstrate that for the same NeRr, our proposed PFD method achieves a significantly lower VeRr, indicating
+ that we retain more valid events while removing the same amount of noise. This leads to the best SNR performance. Furthermore, our method also has a high
+ ACC. Although the ACC of the PUGM method surpasses that of our method, this method removes very little noise, resulting in a less effective denoising
+ performance.
+ Fig. 9. Experimental results on the DND21 dataset. As in Figure 8a, in Figure 9a, the three dark color columns on the left represent NeRr at 15%, 30%,
+ and 50% from left to right, while the three light color columns on the right correspond to VeRr at 15%, 30%, and 50% from left to right. Our proposed PFD
+ method exhibits superior NeRr and VeRr performance, surpassing the learning-based MLPF approach, which results in the highest observed SNR. Furthermore,
+ it achieves notably high ACC.
+ limited denoising effectiveness, namely, fewer TNs. PUGM
+ retains more valid events, namely, a higher number of TPs,
+ which increases the ACC, as shown in Equation 23, with the
+ denominator remaining constant for a given sequence. Under
+ low-noise conditions, retaining more valid events can yield a
+ high ACC even if less noise is removed. However, as noise
+ levels increase, the inferior noise removal capability of PUGM
+ causes its ACC to decrease, whereas our PFD maintains a high
+ ACC across all noise levels, increasing even further as noise
+ increases. Given that the ECD17 dataset has a lower resolution
+ (240 × 180) and scene complexity than the DND21 dataset
+ (whose resolution is 346 × 260), PFD outperforms PUGM
+ in high-noise sequences, demonstrating superior performance
+ in complex and high-noise scenes. Additionally, the slow
+ computation of PUGM makes it impractical for real-time
+ applications, whereas PFD offers rapid computation with only
+ a slightly lower accuracy in some cases. Therefore, PFD has
+ clear advantages over PUGM in terms of overall performance
+ and efficiency.
+ We present the experimental results on the E-MLB dataset
+ in Table I. All 96 sequences in the E-MLB dataset were used
+ for evaluation. Given the specific characteristics of the E
+MLB dataset, we exclusively employ the ESR metric for the
+ evaluation. This method initially computes an ESR score for
+ the undenoised sequence, followed by the calculation of the
+ denoised ESR score. The ESR is a positive indicator, with
+ higher values indicating better performance.
+ Note that since the main structure of PUGM is not open
+ source, we cannot rewrite it into a format that complies
+ with ESR evaluation. We cite the optimal ESR values of the
+ IETS, EventZoom, and MLPF methods as reported in [36].
+ Our proposed method demonstrates exceptional performance
+ across both Daytime and Night sequences within the E
+MLB dataset. It outperforms the SOTA nonlearning-based
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+4378
+ TABLE I
+ IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 35, NO. 5, MAY 2025
+ TABLE II
+ QUANTITATIVE ESR RESULTS ON THE E-MLB DATASET
+ methods and the learning-based MLPF method. While the
+ PFD method may lag slightly behind the SOTA learning-based
+ EventZoom method, it outperforms EventZoom in nighttime
+ ND64 sequences characterized by higher noise levels, showing
+ an improvement of 10%. Note that the ESR evaluation method
+ involves warping events and assigns higher scores to event
+ frames with clearer edges after warping. EventZoom is not a
+ standard bisection network; it also reprojects events, a warping
+ operation on a two-dimensional plane, to enhance edge clarity
+ for subsequent image superresolution tasks. Consequently, the
+ event frames generated by EventZoom have higher spatial
+ gradients than those produced by methods without warping,
+ aligning with the ESR’s reward mechanism and resulting in
+ a higher ESR score for EventZoom. However, the primary
+ goal of denoising is to remove noise while retaining valid
+ events to facilitate various subsequent tasks. For tasks such as
+ motion compensation and rotation estimation, preprocessing
+ events with operations such as warping can lead to significant
+ deviations in the calculation results. Moreover, we notice that
+ PFD-A* has a slightly higher ESR score than PFD-A does,
+ whereas the NeRr and VeRr values of PFD-A* are slightly
+ worse. Importantly, a higher VeRr indicates that more effective
+ events are removed, which increases the spatial gradient of
+ the accumulated event frame (i.e., sharper edges), leading to a
+ slightly higher ESR score for PFD-A*. However, the overall
+ performances of PFD-A and PFD-A* remain very close.
+ The qualitative results on the E-MLB dataset are shown in
+ Figure 7. In the poker sequence, the IETS, DWF, and Event
+Zoom methods significantly reduce the number of valid events,
+ notably including elements such as the heart suit in the upper
+ middle part of the figure. However, the proposed PFD method
+ excels at noise removal while preserving more valid events.
+ These results conclusively demonstrate the effectiveness of
+ our proposed method, which relies on polarity consistency,
+ especially in scenarios involving rapid movement.
+ QUANTITATIVE RESULTS OF FLICKER NOISE
+ REMOVAL ON THE LIED DATASET
+ Fig. 10. Qualitative results for Sequence 9 and Sequence 10 within the
+ LIED dataset. The first row displays the accumulated event frames. The strobe
+ light sources, heavily burdened with flicker noise, are located in the upper
+ right (with a frequency of 100 Hz) and lower left corner (with a frequency
+ of 122 Hz) of the scene. The right side of the scene exhibits significant
+ stray light, primarily due to reflections from the wall. The second row
+ provides a schematic diagram of polarity changes, with yellow, purple-blue,
+ and green indicating one, two, and three or more polarity changes in the pixel,
+ respectively. The third and fourth rows showcase the outcomes processed by
+ the ELIR method and by our proposed PFD-B, respectively.
+ Moreover, the outcomes of both the event-by-event pro
+cessing version and the group-of-event processing version are
+ presented in Figure 8, Figure 9, and Table I. The metrics
+ for the event-by-event version are close to those for the
+ group-of-event version. This highlights the efficacy of both
+ event-by-event and group-of-event processing versions of the
+ PFD method.
+ 2) Comparisons of Flicker Noise Removal: Next, we assess
+ the efficacy of the proposed PFD-B method in eliminating
+ stroboscopic light. For comparative analysis, we choose our
+ previously proposed event-based light interference removal
+ (ELIR) method [35], a foundational baseline method dedicated
+ to stroboscopic light removal. Sequence 9 and Sequence 10 in
+ the LIED dataset are utilized for evaluation. Sequence 9 was
+ captured while the camera was moving, whereas Sequence
+ 10 was recorded with the camera remaining stationary. The
+ quantitative outcomes are detailed in Table II, while the
+ qualitative comparisons are illustrated in Figure 14.
+ The ELIR method effectively diminishes the majority of
+ stroboscopic light interference and stray light affecting the
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+SHI et al.: POLARITY-FOCUSED DENOISING FOR EVENT CAMERAS
+ 4379
+ Fig. 11. Visual comparison in a real-world daytime scenario. PUGM and MLPF, which perform well in low-resolution scenarios, struggle in high-resolution
+ conditions. MLPF is trained on event sequences with a resolution of 346 × 260, whereas PUGM, which is not a learning-based method, determines whether
+ an event is noise or a valid signal by calculating probability distributions. However, these methods become less effective at higher resolutions. In contrast,
+ our proposed method continues to perform well, retaining most of the valid signals while nearly eliminating BA noise.
+ scene. Compared with the ELIR method, the newly developed
+ PFD-B method not only effectively eliminates BA noise but
+ also removes flicker noise, notably those with high-density
+ polarity fluctuations. Under dynamic conditions, our proposed
+ PFD-B method outperforms the SOTA alternative, ELIR,
+ by achieving a nearly 8% greater α.
+ 3) Validation in Real-World Scenarios: We use the Proph
+esee EVK3-HD3 event camera to record two event sequences
+ to evaluate the effectiveness of our proposed method in
+ real-world application scenarios. The EVK3-HD camera, with
+ its megapixel resolution (1280 × 720), is highly sensitive for
+ capturing fine scene details. However, owing to the small
+ pixel size, it is more susceptible to noise. As these sequences
+ inherently contain noise, we refrain from performing quanti
+tative evaluations and instead present the visual results after
+ denoising, as shown in Figure 11 and Figure 12.
+ The first sequence was recorded on the campus of Beihang
+ University during the day, with the recorder seated on an
+ electric bike. As shown in Figure 11, the scene included
+ dynamic objects such as pedestrians and bicycles and featured
+ a variety of buildings and trees rich in texture. Daytime
+ BA noise was relatively minimal. However, MLPF, which
+ had previously shown strong performance in low-resolution
+ sequences, struggled in high-resolution sequences, failing to
+ remove a significant portion of the BA noise. Additionally, the
+ adaptability of PUGM declines notably under high-resolution
+ conditions, leading to the removal of many valid events. DWF,
+ as a more extreme denoising method, either simultaneously
+ removes a large amount of both noise and valid events or
+ retains a significant portion of both. While IETS and DAS
+ performed well, IETS tended to over-denoise, and DAS left
+ some noise unremoved. The proposed PFD-A method not only
+ effectively removes a large amount of noise but also preserves
+ more valid events, maintaining strong performance in real
+world scenarios.
+ The second sequence was recorded on campus at night.
+ During the night, the amount of BA noise increased signifi
+cantly, and nearly all the streetlights on the campus were strobe
+ 3[Online]. Available at: https://www.prophesee.ai/event-based-evaluation
+kits/
+ TABLE III
+ QUANTITATIVE RESULTS OF COMPUTATIONAL PERFORMANCE
+ lights, resulting in considerable light interference throughout
+ the scene. We continued to use electric bicycles for recording,
+ and the scene retained the same rich features as in the
+ daytime sequence, including dynamic elements and textured
+ environments, as shown in Figure 12. Other methods struggle
+ in real-world scenarios with stroboscopic light sources and fail
+ to even remove BA noise. In contrast, the proposed PFD-B
+ method continues to perform exceptionally well, effectively
+ eliminating stroboscopic light and removing the majority of
+ BA noise.
+ 4) Computational Performance: Furthermore, we evalu
+ate the computational performance of the proposed method,
+ as shown in Table III. Since the majority of the baseline meth
+ods were not implemented in C++, we merely outline their
+ performance without making direct comparisons to guarantee
+ a fair evaluation. The throughput of the group-of-event version
+ PFD-A achieves an impressive 9.71 million events per second.
+ Although the calculation speed of the event-by-event version is
+ slower than that of the group-of-event version, its throughput
+ still reaches 3.51 million events per second, satisfying the
+ requirements for real-time performance.
+ E. The Results of Hardware Implementations
+ We conducted a comparison with the hardware implemen
+tation of the MLPF method [20], which was executed on
+ the Xilinx Zynq ZU3CG chip. Notably, this chip shares the
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+4380
+ IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 35, NO. 5, MAY 2025
+ Fig. 12. Visual comparison in a real-world nighttime scenario. This scenario features an extremely bright stroboscopic light source used to capture and record
+ license plates. Additionally, the street lamp itself acts as a stroboscopic light source, contributing to significant BA noise and light interference. In (a), the
+ green box highlights the presence of stroboscopic light interference, while the orange box indicates reflections caused by the stroboscopic light. Our proposed
+ PFD-B not only removes a significant amount of BA noise but also effectively eliminates most of the stroboscopic noise and its reflections. In contrast,
+ other denoising methods lack the ability to address stroboscopic noise and tend to achieve more extreme performance. They either apply overly aggressive
+ denoising, which removes a large portion of useful signals, or offer limited denoising, leaving a substantial amount of noise unaddressed.
+ TABLE IV
+ COMPARISON OF HARDWARE IMPLEMENTATIONS
+ same FPGA as the one integrated into the ZU3EG, ensuring a
+ fair and direct comparison between the two implementations.
+ Table IV outlines the algorithm resources and delays.
+ Our proposed PFD implementation requires only 7 clock
+ cycles, and event reading occurs every 6 clock cycles. With
+ the FPGA operating at a frequency of 100 MHz, the single
+ event processing time is only 70 ns, achieving a throughput
+ capacity of up to 14.3 million events per second. Our proposed
+ hardware implementation demonstrates superior computational
+ speed and resource utilization compared with the hardware
+ implementation of MLPF, thereby outperforming it. This
+ comprehensive comparison substantiates the efficiency and
+ effectiveness of our proposed method.
+ F. Ablation Study
+ 1) The Impact of Individual Parameters: We first conducted
+ a comprehensive evaluation to assess the individual effective
+ness of the two components within our proposed method.
+ Initially, we applied solely the polarity consistency-based
+ coarse denoising method (coarse denoising) to the slider_depth
+ and driving sequences from the ECD17 and DND21 datasets,
+ respectively. The noise level is 30%.
+ Following this, we exclusively utilized the motion
+ consistency-based fine denoising method (fine denoising) for
+ testing. Equation 16 and Equation 18, which are designed for
+ f
+ ine denoising, are both tested. Furthermore, we present the
+ outcomes following the two-step processing with our methods,
+ namely, PFD-A and PFD-B. The experimental results of each
+ step are detailed in Table V.
+ These results reveal that coarse denoising alone eliminates
+ approximately half of the noise, preserving over 94% of the
+ valid events. In contrast, fine denoising on its own more
+ TABLE V
+ THE PERFORMANCE OF EACH COMPONENT OF THE PROPOSED METHOD
+ effectively removes noise but also mistakenly discards
+ some valid events. However, employing both methods
+ sequentially-first
+ coarse denoising followed by fine
+ denoising-significantly improves the outcomes. Both PFD-A
+ and PFD-B demonstrate enhanced performance, effectively
+ balancing noise removal with the preservation of valid events.
+ This synergistic effect of the two-step processing approach
+ outperforms the use of either filter alone, underscoring the
+ efficacy of our proposed method. Furthermore, the two
+ denoising criteria we introduced prove to be highly effective,
+ exhibiting closely matched performance levels.
+ Next, the effects of varying the time window, as well
+ as the minimum number of neighbors µ and m, on the
+ performance of the proposed coarse denoising method and
+ f
+ ine denoising method are studied. Note that µ is applied
+ for the coarse denoising method and that m is applied for
+ the fine denoising method. Using the driving sequence from
+ the DND21 dataset with 30% noise, we adjusted the time
+ window from 10 ms to 40 ms in 5 ms steps and set µ and
+ m from 1 to 4 (with µ = 0 or m = 0 treating all signals
+ as valid). The experimental results, illustrated in Figure 13,
+ show that smaller time windows and a greater number of
+ neighbors increase NeRr and VeRr, indicating better noise
+ removal but at the risk of discarding valid signals. Therefore,
+ we suggest a balanced setting to effectively reduce noise while
+ preserving valid signals. Moreover, as depicted in Figure 13b
+ and Figure 13c, Equation 16, which is dedicated exclusively
+ to eliminating BA noise, and Equation 18, which is capable of
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+SHI et al.: POLARITY-FOCUSED DENOISING FOR EVENT CAMERAS
+ 4381
+ Fig. 13. NeRr and VeRr of the polarity consistency-based coarse denoising method and motion consistency-based fine denoising method. As shown in (a),
+ using a 10 ms time window as an example, the results for µ = 1 to µ = 4 are displayed sequentially from left to right. The colored bars represent the values
+ of NeRr and VeRr, with their heights indicating the respective values. NeRr and VeRr associated with the same parameters are positioned on a common basis
+ for easy comparison. Note that both (b) and (c) depict the outcomes following only fine denoising, omitting the coarse denoising process.
+ removing both BA noise and flicker noise simultaneously, have
+ both demonstrated commendable effectiveness in mitigating
+ BA noise. To enhance our proposed method, we recommend
+ a lower value of µ during the coarse filtering stage to retain the
+ majority of valid signals while effectively eliminating most of
+ the noise. The experimental results indicate that with µ = 1,
+ only 6% of the valid signals are removed within the time
+ window of 25 ms. For the fine denoising method, we suggest
+ selecting m in the range of 2 to 3 to further reduce noise while
+ keeping VeRr low. Additionally, we advise using a smaller
+ time window of 10 ms to 15 ms in high-mobility applications
+ and a 20 ms to 25 ms window for typical applications
+ (excluding very high-speed scenarios). With these parameters,
+ our proposed PFD method achieves optimal performance.
+ 2) The Joint Impact of Multiple Parameters: Moreover,
+ to thoroughly analyze the impact of adjustable parameters
+ on the denoising performance, we conduct a comprehensive
+ experiment of the most important parameters, namely, the time
+ window, µ, and m, on the overall PFD-A and PFD-B to inform
+ the optimal parameter selection strategy. The experimental
+ results are presented in Figure 14. We set µ, m, and the time
+ window as the x, y, and z axes, respectively, and represent
+ the calculated NeRr and VeRr as concentric spheres, with
+ their radii corresponding to the calculated values. For clarity,
+ VeRr is displayed as a solid sphere, while NeRr is shown as
+ a transparent sphere. Better denoising results are indicated by
+ larger NeRr values and smaller VeRr values, represented in
+ the figure by larger transparent spheres and smaller concentric
+ solid spheres.
+ As shown in Figure 14, the best denoising effect is achieved
+ when m is set between 1 and 3, µ is set between 1 and 2, and
+ the time window is between 20 ms and 30 ms. For high-noise
+ application scenarios, such as nighttime conditions or frequent
+ lighting changes, it is recommended to use larger µ and m
+ values and shorten the time window.
+ Additionally, we evaluate the influence of the parameters τ
+ and σ on the experimental results. The parameter τ is assessed
+ based on the consistency of polarity changes between a current
+ event and neighboring events. A larger τ value indicates more
+ lenient denoising conditions. For σ, the focus is on the mean
+ value of the polarity change in the neighborhood; a higher
+ σ implies less stringent filtering conditions. We recommend
+ setting σ to 1 and τ to 1. The selection of these two parameters
+ can cover most scenarios, demonstrating excellent denoising
+ Fig. 14.
+ The NeRr and VeRr of PFD-A and PFD-B are calculated by
+ adjusting three parameters: µ, m, and the time window. The adjustment range
+ for µ and m is from 1 to 4, while the time window ranges from 10 ms
+ to 40 ms, with a step size of 5 ms. We utilize a transparent red sphere to
+ symbolize NeRr and a solid blue sphere for VeRr. The intensity of the blue
+ color indicates the VeRr value, with darker shades representing smaller values,
+ while darker red shades signify lower NeRr values. Additionally, the radius of
+ each sphere is proportional to the respective NeRr and VeRr values; smaller
+ spheres correspond to smaller NeRr or VeRr values. Consistent with previous
+ experimental results, the performances of the PFD-A and PFD-B methods are
+ very similar. Both achieve high NeRr while maintaining very low VeRr with
+ appropriate parameter selection.
+ effects in complex motion environments and in scenes with
+ high-frequency flicker noise.
+ Authorized licensed use limited to: Tsinghua University. Downloaded on July 21,2025 at 03:16:12 UTC from IEEE Xplore.  Restrictions apply. 
+4382
+ VI. LIMITATIONS
+ IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 35, NO. 5, MAY 2025
+ Our proposed denoising method demonstrates significant
+ efficacy in environments with rapid motion by effectively
+ leveraging the inherent distinction of events with pronounced
+ polarity changes from BA noise. However, the absence or min
+imal presence of polarity changes can reduce the effectiveness
+ of the proposed PFD method. Nevertheless, as our proposed
+ method consists of two stages, the first stage removes most
+ of the noise on the basis of polarity consistency rather than
+ the consistency of polarity changes. Therefore, in scenarios
+ with moderate motion, where there are no significant polarity
+ changes, our method still performs quite well. Despite this, the
+ high temporal resolution of event cameras makes them partic
+ularly well suited for capturing scenes with rapid movement.
+ Consequently, our proposed method retains broad applicability
+ across various dynamic scenarios.
+ VII. CONCLUSION
+ In this paper, we introduced the polarity-focused denoising
+ (PFD) method for event cameras. PFD employs a dual-stage
+ denoising process, incorporating a polarity consistency-based
+ coarse filter and a motion consistency-based fine filter. More
+over, we establish two distinct criteria: PFD-A for effectively
+ eliminating BA noise and PFD-B for concurrently removing
+ both BA noise and flicker noise. Our proposed method is
+ characterized by its straightforward computational process;
+ thus, it has rapid computational speed. Furthermore, a com
+prehensive evaluation across five metrics, NeRr, VeRr, SNR,
+ ACC, and ESR, reveals that PFD-A outperforms existing
+ SOTA event-based denoising methods in BA noise removal
+ across various benchmark datasets. Moreover, the experiments
+ on the LIED dataset show that PFD-B effectively eliminates
+ f
+ licker and BA noise. Significantly, our method achieves
+ these outcomes without the need for external data sources,
+ such as APS frames and IMU data. Finally, we present an
+ FPGA implementation of PFD-A, highlighting its efficiency
+ by processing each event in 7 clock cycles.
+ ACKNOWLEDGMENT
+ The authors express their profound gratitude to Dr. Peiqi
+ Duan for sharing the codes of the EventZoom method.

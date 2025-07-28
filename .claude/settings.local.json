@@ -12,7 +12,8 @@
       "Bash(bash:*)",
       "Bash(nvidia-smi:*)",
       "Bash(pip uninstall:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "WebFetch(domain:)"
     ],
     "deny": []
   }

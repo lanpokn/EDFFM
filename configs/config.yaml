@@ -27,23 +27,29 @@ model:
   # 特征提取器输出的维度，同时也是Mamba嵌入层之前的输入维度
   input_feature_dim: 32     
   
-  # Mamba 骨干网络参数
-  d_model: 128            # Mamba 内部的工作维度
-  d_state: 16             # SSM 状态空间的维度 (关键参数, 影响速度和内存)
-  d_conv: 4               # Mamba 内部1D卷积核大小
-  expand: 2               # Mamba 块的扩展因子
-  n_layers: 4             # 堆叠的 Mamba 模块数量
+  # Mamba 骨干网络参数 - 可根据显卡性能调整
+  d_model: 128            # Mamba 内部的工作维度 (可调整: 64/128/256/512)
+  d_state: 16             # SSM 状态空间的维度 (可调整: 8/16/32/64)
+  d_conv: 4               # Mamba 内部1D卷积核大小 (可调整: 3/4/5)
+  expand: 2               # Mamba 块的扩展因子 (可调整: 1/2/4)
+  n_layers: 4             # 堆叠的 Mamba 模块数量 (可调整: 2/4/6/8/12)
+  
+  # 更强显卡建议配置 (注释掉的高性能版本):
+  # d_model: 512           # 4倍容量
+  # d_state: 64            # 4倍状态空间  
+  # n_layers: 8            # 2倍深度
+  # expand: 4              # 2倍扩展
 
 # --- 特征提取器算法设置 (Feature Extractor Algorithm Settings) ---
 feature_extractor:
-  # 在这里定义您的特征工程所需的所有算法超参数
+  # PFD 特征提取参数
+  pfd_time_window: 25000      # Time window for Mf calculation (25ms in µs)
+  pfd_neighborhood_size: 3    # Neighborhood size for PFD features (1=1x1, 3=3x3, 5=5x5)
   
-  # PFD 粗滤阶段参数
+  # 原有参数 (保持向后兼容)
   coarse_time_window: 2000    # (δtc, in µs)
   coarse_support_threshold: 1 # (μ)
   coarse_neighborhood_size: 3 # (n x n)
-  
-  # PFD 精滤阶段参数
   fine_time_window: 30000     # (δtf, in µs)
   fine_neighborhood_size: 3   # (n x n)
 
