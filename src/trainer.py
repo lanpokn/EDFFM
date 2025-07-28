@@ -30,7 +30,6 @@ class Trainer:
             
             self.optimizer.zero_grad()
             
-            # 模型现在直接处理原始事件！逻辑非常清晰
             predictions = self.model(raw_events)
             
             loss = self.criterion(predictions, labels)

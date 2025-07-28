@@ -8,32 +8,31 @@ Our core idea is to combine the physical insights of classical filters (via feat
 
 This project is developed using PyTorch and the official Mamba library. We strongly recommend using Conda for environment management.
 
-**Step 1: Create and Activate Conda Environment**
+Step 1: Create and Activate Conda Environment
 
 Open your Anaconda Prompt or terminal and run the following commands:
 
-```bash
+Generated bash
 # Create a new conda environment with Python 3.10
 conda create -n event-mamba-fx python=3.10
 
 # Activate the newly created environment
 conda activate event-mamba-fx
-```
 
-**Step 2: Install PyTorch with CUDA Support**
 
-Your NVIDIA GeForce RTX 4060 supports CUDA 12. Go to the [official PyTorch website](https://pytorch.org/get-started/locally/) to get the latest stable installation command. It should look similar to this:
+Step 2: Install PyTorch with CUDA Support
 
-```bash
+Your NVIDIA GeForce RTX 4060 supports CUDA 12. Go to the official PyTorch website to get the latest stable installation command. It should look similar to this:
+
+Generated bash
 # Command for PyTorch 2.3 with CUDA 12.1 (Please verify on the official website)
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-```
+conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
 
-**Step 3: Install Mamba and its Dependencies**
+Step 3: Install Mamba and its Dependencies
 
 Mamba requires specific dependencies for its optimized kernels.
 
-```bash
+Generated bash
 # Install build dependencies
 pip install ninja
 
@@ -42,13 +41,12 @@ pip install causal-conv1d>=1.2.0
 
 # Install the official Mamba package
 pip install mamba-ssm
-```
 
-**Step 4: Install Other Necessary Libraries**
+Step 4: Install Other Necessary Libraries
 
-```bash
-# For data handling, progress bars, etc.
-pip install numpy tqdm opencv-python h5py pandas```
+Generated bash
+# For data handling, configuration, progress bars, and evaluation
+pip install numpy pyyaml tqdm scikit-learn pandas opencv-python h5py
 
 After these steps, your environment is ready for development and training.
 
@@ -61,12 +59,9 @@ event-mamba-fx/
 │
 ├── data/                       # Directory for storing datasets
 │   ├── raw_videos/             # Raw video files (e.g., from KITTI, TartanAir)
-│   └── simulated_events/       # Generated paired (noisy, clean_labels) event data
+│   └── simulated_events/       # Generated paired event data
 │
 ├── simulator/                  # Scripts for data generation
-│   ├── v2e.py                  # Core V2E simulator logic (can be a submodule)
-│   ├── noise_models.py         # Your implementation of BA, Flicker, Flare noise
-│   └── generate_dataset.py     # Main script to run simulation and create paired data
 │
 ├── src/                        # Main source code
 │   ├── datasets.py             # PyTorch Dataset and DataLoader classes
@@ -93,41 +88,3 @@ event-mamba-fx/
 ```
 
 ## 3. How to Run (Future Steps)
-
-**(This section is a template for you to fill in as you complete the project)**
-
-**Step 1: Generate the Dataset**
-
-```bash
-python simulator/generate_dataset.py --config configs/dataset_gen_config.yaml
-```
-
-**Step 2: Train the Model**
-
-```bash
-python main.py --mode train --config configs/experiment_01.yaml
-```
-
-**Step 3: Evaluate the Model**
-
-```bash
-python main.py --mode evaluate --checkpoint checkpoints/best_model.pth --config configs/experiment_01.yaml
-```
-
-## 4. Work Plan & To-Do
-
--   [ ] **Phase 1: Infrastructure**
-    -   [ ] Implement noise models in `simulator/noise_models.py`.
-    -   [ ] Finalize data generation script `simulator/generate_dataset.py`.
-    -   [ ] Implement PFD baseline and evaluation metrics in `src/evaluate.py`.
--   [ ] **Phase 2: Prototyping**
-    -   [ ] Implement the streaming feature extractor in `src/feature_extractor.py`.
-    -   [ ] Define the Mamba network in `src/model.py`.
-    -   [ ] Implement the training loop in `src/trainer.py` and get the model to converge.
--   [ ] **Phase 3: Iteration & Experiments**
-    -   [ ] Conduct feature ablation studies.
-    -   [ ] Tune Mamba hyperparameters.
-    -   [ ] Run final comparisons against baselines.
--   [ ] **Phase 4: Publication**
-    -   [ ] Write the paper.
-    -   [ ] Clean up and release the code.

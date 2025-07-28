@@ -1,6 +1,6 @@
 import torch
+import numpy as np
 from tqdm import tqdm
-# 您可以从sklearn或自己实现这些指标
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
 
 class Evaluator:
@@ -19,7 +19,6 @@ class Evaluator:
             for raw_events, labels in tqdm(self.test_loader, desc="Evaluating"):
                 raw_events, labels = raw_events.to(self.device), labels.to(self.device)
                 
-                # 同上，需要特征提取
                 features = raw_events
 
                 predictions = self.model(features)

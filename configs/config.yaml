@@ -9,18 +9,18 @@ run:
   
 # --- 数据集设置 (Data Settings) ---
 data:
-  # 数据文件路径 (请根据您的实际情况修改)
-  train_path: "./data/simulated_events/train_data.txt"
-  val_path: "./data/simulated_events/val_data.txt"
-  test_path: "./data/simulated_events/test_data.txt"
+  # 数据文件路径 (混合事件作为输入，包含原始+炫光)
+  train_path: "./data/mixed_events/train_data.txt"
+  val_path: "./data/mixed_events/val_data.txt"
+  test_path: "./data/mixed_events/test_data.txt"
   
   # 事件相机分辨率 (这是数据的固有属性)
   resolution_h: 260
   resolution_w: 346
 
   # DataLoader 参数
-  sequence_length: 2048   # 输入给模型的序列长度
-  num_workers: 4          # 加载数据的进程数 (根据您的CPU核心数调整)
+  sequence_length: 64     # 输入给模型的序列长度 (reduced for testing)
+  num_workers: 0          # 加载数据的进程数 (set to 0 for debugging)
 
 # --- 模型架构设置 (Model Architecture Settings) ---
 model:
@@ -49,7 +49,7 @@ feature_extractor:
 
 # --- 训练设置 (Training Settings) ---
 training:
-  epochs: 100
+  epochs: 2
   batch_size: 32
   learning_rate: 0.001
   checkpoint_dir: "./checkpoints" # 保存模型权重的目录

@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import os
-from src.feature_extractor import FeatureExtractor # 导入您的特征提取器
+from .feature_extractor import FeatureExtractor
 
 class EventDenoisingDataset(Dataset):
     def __init__(self, file_path, config):

@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
-from mamba_ssm import Mamba
+try:
+    from mamba_ssm import Mamba
+except ImportError:
+    from .utils.mock_mamba import Mamba
 
 class EventDenoisingMamba(nn.Module):
     def __init__(self, config): # 只需要模型相关的配置
@@ -12,7 +15,16 @@ class EventDenoisingMamba(nn.Module):
         
         self.embedding = nn.Linear(input_feature_dim, d_model)
         
-        self.layers = nn.ModuleList([...]) # Mamba层不变
+        n_layers = model_config['n_layers']
+        self.layers = nn.ModuleList([
+            Mamba(
+                d_model=d_model,
+                d_state=model_config['d_state'], 
+                d_conv=model_config['d_conv'],
+                expand=model_config['expand']
+            )
+            for _ in range(n_layers)
+        ])
         
         self.classification_head = nn.Linear(d_model, 1)
 

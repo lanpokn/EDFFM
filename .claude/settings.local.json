@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(conda create:*)",
+      "Bash(conda activate:*)",
+      "Bash(source:*)",
+      "Bash(chmod:*)",
+      "Bash(./run_project.sh:*)",
+      "Bash(bash:*)",
+      "Bash(nvidia-smi:*)",
+      "Bash(pip uninstall:*)",
+      "Bash(mv:*)"
+    ],
+    "deny": []
+  }
+}

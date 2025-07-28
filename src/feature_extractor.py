@@ -3,6 +3,7 @@ import numpy as np
 class FeatureExtractor:
     def __init__(self, config):
         # 从config中获取所有需要的参数
+        self.config = config
         self.h = config['data']['resolution_h']
         self.w = config['data']['resolution_w']
         self.coarse_time_window = config['feature_extractor']['coarse_time_window']
@@ -32,17 +33,31 @@ class FeatureExtractor:
         for i in range(num_events):
             x, y, t, p = raw_events[i]
             
-            # --- TODO: 在这里计算几十维的特征 ---
-            # 1. 计算 Δt
-            # 2. 计算粗滤特征 N_p (查询和更新 time_maps)
-            # 3. 计算精滤特征 Mf, Ma, Ne (需要维护更多状态图)
-            # ...
+            # Basic features: x, y, t, p + additional dimensions (placeholder)
+            x_norm = x / self.w  # Normalized x
+            y_norm = y / self.h  # Normalized y
             
-            # 将计算出的特征填入特征向量
-            feature_vector = np.array([...]) # 您的几十维特征
+            # Time delta (if not first event)
+            if i > 0:
+                dt = t - raw_events[i-1, 2]
+            else:
+                dt = 0
+                
+            # Polarity-aware time since last event at this pixel
+            if p > 0:
+                dt_pixel = t - p_time_map[int(y), int(x)]
+                p_time_map[int(y), int(x)] = t
+            else:
+                dt_pixel = t - n_time_map[int(y), int(x)] 
+                n_time_map[int(y), int(x)] = t
+            
+            # Create basic feature vector (expandable to more dimensions)
+            feature_vector = np.array([
+                x_norm, y_norm, t, p,  # Basic event attributes
+                dt, dt_pixel,          # Temporal features
+                *np.zeros(output_dim - 6)  # Placeholder for additional features
+            ])
+            
             feature_sequence[i] = feature_vector
-            
-            # 更新这个事件对应的状态图
-            # ...
 
         return feature_sequence
