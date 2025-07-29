@@ -2,7 +2,7 @@ import argparse
 import yaml
 import torch
 
-from src.datasets import create_dataloaders
+from src.mixed_flare_dataloaders import create_mixed_flare_dataloaders
 from src.model import EventDenoisingMamba # 确认导入的是修正后的模型
 from src.trainer import Trainer
 from src.evaluate import Evaluator
@@ -14,8 +14,8 @@ def main(config):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    # 1. 创建数据集加载器
-    train_loader, val_loader, test_loader = create_dataloaders(config)
+    # 1. 创建数据集加载器 (混合flare数据)
+    train_loader, val_loader, test_loader = create_mixed_flare_dataloaders(config)
 
     # 2. 初始化模型 (关键修正)
     # 现在我们将特征提取器和Mamba模型的配置分开传递

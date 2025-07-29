@@ -9,23 +9,73 @@ run:
   
 # --- 数据集设置 (Data Settings) ---
 data:
-  # 数据文件路径 (混合事件作为输入，包含原始+炫光)
-  train_path: "./data/mixed_events/train_data.txt"
-  val_path: "./data/mixed_events/val_data.txt"
-  test_path: "./data/mixed_events/test_data.txt"
+  # DSEC数据集路径 (使用内存高效版本)
+  dsec_path: "/mnt/e/2025/event_flick_flare/object_detection/dsec-det-master/data/train"
   
-  # 事件相机分辨率 (这是数据的固有属性)
-  resolution_h: 260
-  resolution_w: 346
+  # Flare7Kpp数据集路径 (Compound_Flare散射数据)
+  flare7k_path: "/mnt/e/2025/physical_deflare/Datasets/Flare7Kpp/Flare7Kpp"
+  
+  # 随机化训练数据生成策略 (提高泛化能力)
+  randomized_training:
+    # 背景事件随机长度范围 (避免过长导致内存压力)
+    background_duration_range: [0.3, 1.2]   # 0.3-1.2秒 (适中范围)
+    # 炫光事件随机长度范围 (避免仿真器压力过大)  
+    flare_duration_range: [0.2, 0.8]        # 0.2-0.8秒 (控制帧数)
+    
+    # 双向随机偏移范围 (两者都可以有时间偏移)
+    background_offset_range: [0.0, 0.3]     # 背景事件偏移0-0.3秒
+    flare_offset_range: [0.0, 0.5]          # 炫光事件偏移0-0.5秒
+    
+    # 训练集偏向设置 (保持常见场景为主)
+    background_contains_flare_prob: 0.75    # 75%情况下背景包含炫光
+    flare_only_prob: 0.1                    # 10%只有炫光事件
+    background_only_prob: 0.15              # 15%只有背景事件
+    
+    # 最终输入长度随机化 (给Mamba的输入)
+    final_duration_range: [0.4, 1.5]        # 最终序列0.4-1.5秒
+    
+    # 安全限制 (防止内存/计算压力)
+    max_total_duration: 2.0                 # 绝对最大时长2秒
+    max_flare_frames: 400                    # 炫光最大帧数限制
+    
+  # 合成flare事件的参数 (基于真实人造光源闪烁频率)  
+  flare_synthesis:
+    # 真实世界人造光源闪烁频率 (基于电网频率)
+    realistic_frequencies:
+      # 50Hz电网国家 (欧洲/亚洲/非洲/澳洲): 荧光灯、LED闪烁100Hz
+      power_50hz: 100.0                  # 基础频率100Hz
+      # 60Hz电网国家 (北美/部分南美): 荧光灯、LED闪烁120Hz  
+      power_60hz: 120.0                  # 基础频率120Hz
+      # 日本特殊情况: 东部50Hz, 西部60Hz
+      japan_east: 100.0                  # 东京等地区
+      japan_west: 120.0                  # 大阪等地区
+    
+    # 随机变化范围 (±Hz, 模拟电网不稳定、调光器、老化等因素)
+    frequency_variation: 5.0             # ±5Hz随机变化
+    
+    # 动态帧率计算 (基于频率自动调整, 已优化)
+    min_samples_per_cycle: 6             # 每个闪烁周期最少采样点数 (降低)
+    max_fps: 400                         # 最大帧率限制 (进一步降低)
+    
+    flicker_curves: ["sine", "square", "triangle", "exponential"]  # 闪烁曲线类型
+    position_random: true                # 随机flare位置
+    intensity_scale: [0.5, 2.0]        # 强度缩放范围
+  
+  # 向后兼容参数 (保持原有接口)
+  time_window_us: 1000000   # 1 second (基础参数，会被随机化覆盖)
+  
+  # 事件相机分辨率 (DSEC分辨率)
+  resolution_h: 480
+  resolution_w: 640
 
-  # DataLoader 参数
-  sequence_length: 64     # 输入给模型的序列长度 (reduced for testing)
+  # DataLoader 参数 
+  sequence_length: 8     # 超小序列长度进行快速验证
   num_workers: 0          # 加载数据的进程数 (set to 0 for debugging)
 
 # --- 模型架构设置 (Model Architecture Settings) ---
 model:
-  # 特征提取器输出的维度，同时也是Mamba嵌入层之前的输入维度
-  input_feature_dim: 32     
+  # 特征提取器输出的维度，同时也是Mamba嵌入层之前的输入维度 (优化为13维)
+  input_feature_dim: 13     
   
   # Mamba 骨干网络参数 - 可根据显卡性能调整
   d_model: 128            # Mamba 内部的工作维度 (可调整: 64/128/256/512)
@@ -55,12 +105,12 @@ feature_extractor:
 
 # --- 训练设置 (Training Settings) ---
 training:
-  epochs: 2
-  batch_size: 32
+  epochs: 1  # 验证用，只训练1轮
+  batch_size: 2  # 更小的batch size进行快速验证
   learning_rate: 0.001
   checkpoint_dir: "./checkpoints" # 保存模型权重的目录
 
 # --- 评估设置 (Evaluation Settings) ---
 evaluation:
-  batch_size: 64
+  batch_size: 2  # 与训练保持一致，避免内存问题
   checkpoint_path: "./checkpoints/best_model.pth" # 评估时加载的模型路径

@@ -30,9 +30,12 @@ class Trainer:
             
             self.optimizer.zero_grad()
             
-            predictions = self.model(raw_events)
+            predictions = self.model(raw_events)  # [batch_size, sequence_length, 1]
             
-            loss = self.criterion(predictions, labels)
+            # 调整标签格式以匹配预测输出
+            labels_float = labels.float().unsqueeze(-1)  # [batch_size, sequence_length, 1]
+            
+            loss = self.criterion(predictions, labels_float)
             loss.backward()
             self.optimizer.step()
             
@@ -48,7 +51,10 @@ class Trainer:
             for raw_events, labels in tqdm(self.val_loader, desc="Validating"):
                 raw_events, labels = raw_events.to(self.device), labels.to(self.device)
                 predictions = self.model(raw_events)
-                loss = self.criterion(predictions, labels)
+                
+                # 调整标签格式以匹配预测输出
+                labels_float = labels.float().unsqueeze(-1)
+                loss = self.criterion(predictions, labels_float)
                 total_loss += loss.item()
         return total_loss / len(self.val_loader)
 

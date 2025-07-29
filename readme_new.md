@@ -4,14 +4,14 @@
 
 本项目实现了基于 Mamba 架构的事件相机闪光去除系统。系统接收两个事件流：原始事件数据和包含闪光的事件数据，通过深度学习模型学习在单个事件级别上移除闪光事件，输出干净的事件流。
 
-This project implements an event-based glare removal system using Mamba architecture. The system takes two event streams as input: original events and events with glare, and learns to remove glare events at the individual event level through deep learning.
+This project implements an event-based flare removal system using Mamba architecture. The system takes two event streams as input: original events and events with flare, and learns to remove flare events at the individual event level through deep learning.
 
 ## 🏗️ 系统架构 (System Architecture)
 
 ### 数据流 (Data Flow)
 ```
 原始事件 + 闪光事件 → 特征提取 → Mamba网络 → 分类输出 (0=闪光, 1=干净)
-Raw Events + Glare Events → Feature Extraction → Mamba Network → Classification (0=glare, 1=clean)
+Raw Events + Flare Events → Feature Extraction → Mamba Network → Classification (0=flare, 1=clean)
 ```
 
 ### 核心组件 (Core Components)

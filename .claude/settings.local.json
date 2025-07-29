@@ -13,7 +13,18 @@
       "Bash(nvidia-smi:*)",
       "Bash(pip uninstall:*)",
       "Bash(mv:*)",
-      "WebFetch(domain:)"
+      "WebFetch(domain:)",
+      "Bash(cp:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(sed:*)",
+      "Bash(CUDA_VISIBLE_DEVICES=-1 python main.py --config configs/config.yaml)",
+      "Bash(conda install:*)",
+      "Bash(timeout:*)",
+      "Bash(true)",
+      "Bash(rm:*)",
+      "Bash(pkill:*)"
     ],
     "deny": []
   }

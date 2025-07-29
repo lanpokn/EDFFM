@@ -10,7 +10,7 @@ This report presents comprehensive performance testing results for the Mamba-bas
 
 ## 🎯 Test Objectives
 
-**Primary Question**: "*How long does it take to inference 1 million events and output glare-removed events?*"
+**Primary Question**: "*How long does it take to inference 1 million events and output flare-removed events?*"
 
 **Test Methodology**:
 - Test 10,000 events with extrapolation to million-scale (leveraging Mamba's linear complexity)
@@ -73,7 +73,7 @@ Accuracy: Model successfully classifies events
 
 Based on Mamba's **O(n) linear complexity**, direct extrapolation from 10K test:
 
-| Scale | CPU Time | GPU Estimate* | Clean Output | Glare Removed |
+| Scale | CPU Time | GPU Estimate* | Clean Output | Flare Removed |
 |-------|----------|---------------|--------------|---------------|
 | 100K | 1.3s | 0.1s | ~80,000 | ~20,000 |
 | 500K | 6.3s | 0.3s | ~400,000 | ~100,000 |
@@ -94,8 +94,8 @@ Based on Mamba's **O(n) linear complexity**, direct extrapolation from 10K test:
 - **GPU (RTX 4060)**: **6.28 seconds** (159,276 events/sec) ✅ **VERIFIED**
 
 **📤 Output:**
-- **Clean Events**: ~800,000 events (glare successfully removed)
-- **Glare Events Filtered**: ~200,000 events (25% of input)
+- **Clean Events**: ~800,000 events (flare successfully removed)
+- **Flare Events Filtered**: ~200,000 events (25% of input)
 
 **💾 Resource Usage:**
 - **CPU Memory**: ~150 MB
@@ -212,7 +212,7 @@ Power efficiency: Low computational overhead
 - ✅ **Million-scale processing**: Achieved in 12.6s (CPU) / 0.6s (GPU)
 - ✅ **Linear scalability**: Perfect O(n) complexity confirmed
 - ✅ **Memory efficiency**: Suitable for large-scale deployment
-- ✅ **Accuracy maintained**: Effective glare removal at scale
+- ✅ **Accuracy maintained**: Effective flare removal at scale
 
 ### Business Impact
 - **Real-time capable**: Sub-second processing with GPU
@@ -235,7 +235,7 @@ Power efficiency: Low computational overhead
 Event Format: x, y, timestamp, polarity, label
 Resolution: 260 × 346 pixels
 Temporal Range: Variable (sorted timestamps)
-Label Distribution: ~75% clean events, ~25% glare events
+Label Distribution: ~75% clean events, ~25% flare events
 Feature Dimensions: 32 (expandable for complex features)
 ```
 

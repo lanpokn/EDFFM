@@ -25,7 +25,7 @@ class FeatureExtractor:
             feature_sequence (np.array): Shape: [sequence_length, output_dim]
         """
         num_events = raw_events.shape[0]
-        output_dim = 13  # Fixed to 13 dimensions (only meaningful features)
+        output_dim = self.config['model']['input_feature_dim']
         feature_sequence = np.zeros((num_events, output_dim))
 
         # Initialize traditional time maps
@@ -50,14 +50,10 @@ class FeatureExtractor:
             x_center = (x - self.w/2) / (self.w/2)  # Center-relative [-1, 1]
             y_center = (y - self.h/2) / (self.h/2)  # Center-relative [-1, 1]
             
-            # Time delta features (handle overflow and negative values)
+            # Time delta features
             if i > 0:
                 dt = t - raw_events[i-1, 2]
-                # Handle negative dt (from overflow) and zero dt
-                dt = max(dt, 1)  # Ensure dt is at least 1 microsecond
                 dt_norm = np.log(dt + 1e-6)  # Log-scaled delta time
-                # Clamp to reasonable range
-                dt_norm = np.clip(dt_norm, 0, 20)  # Prevent extremely large values
             else:
                 dt_norm = 0
                 
@@ -69,8 +65,7 @@ class FeatureExtractor:
                 dt_pixel = t - n_time_map[iy, ix] if n_time_map[iy, ix] > 0 else 0
                 n_time_map[iy, ix] = t
             
-            dt_pixel_norm = np.log(max(dt_pixel, 1) + 1e-6) if dt_pixel > 0 else 0
-            dt_pixel_norm = np.clip(dt_pixel_norm, 0, 20)  # Prevent extremely large values
+            dt_pixel_norm = np.log(dt_pixel + 1e-6) if dt_pixel > 0 else 0
             
             # === PFD-inspired Features ===
             
@@ -115,22 +110,21 @@ class FeatureExtractor:
             current_polarity_changes = polarity_change_map[iy, ix]
             current_event_count = event_count_map[iy, ix]
             
-            # Create optimized 13-dimensional feature vector (works with any NxN neighborhood)
-            # Apply additional normalization/clipping to ensure stable ranges
+            # Create enhanced feature vector with PFD features
             feature_vector = np.array([
-                np.clip(x_center, -1, 1),            # 0: Center-relative x [-1,1]
-                np.clip(y_center, -1, 1),            # 1: Center-relative y [-1,1]
-                p,                                   # 2: Polarity {-1, 1}
-                np.clip(dt_norm, 0, 15),             # 3: Log-scaled delta time [0,15]
-                np.clip(dt_pixel_norm, 0, 15),       # 4: Log-scaled pixel-wise delta time [0,15]
-                np.clip(mf_current, 0, 100),         # 5: Polarity frequency (Mf) [0,100]
-                np.clip(ma_neighborhood, 0, 100),    # 6: Neighborhood polarity changes (Ma) [0,100]
-                np.clip(ne_neighborhood, 0, 8),      # 7: Active neighbors count (Ne) [0,8]
-                np.clip(d_neighborhood, 0, 10),      # 8: Polarity change density [0,10]
-                np.clip(pfd_a_score, 0, 100),        # 9: PFD-A denoising score [0,100]
-                np.clip(pfd_b_score, 0, 10),         # 10: PFD-B flicker detection score [0,10]
-                np.clip(current_polarity_changes, 0, 100),  # 11: Total polarity changes [0,100]
-                np.clip(current_event_count, 0, 1000),      # 12: Total event count [0,1000]
+                x_center, y_center,           # 0,1: Center-relative spatial coordinates [-1,1]
+                p,                            # 2: Polarity {-1, 1}
+                dt_norm,                      # 3: Log-scaled delta time
+                dt_pixel_norm,                # 4: Log-scaled pixel-wise delta time
+                mf_current,                   # 5: Polarity frequency in time window (Mf)
+                ma_neighborhood,              # 6: Neighborhood polarity changes (Ma)
+                ne_neighborhood,              # 7: Active neighbors count (Ne)
+                d_neighborhood,               # 8: Polarity change density D(x,y) = Ma/Ne
+                pfd_a_score,                  # 9: PFD-A denoising score
+                pfd_b_score,                  # 10: PFD-B flicker detection score
+                current_polarity_changes,     # 11: Total polarity changes at this pixel
+                current_event_count,          # 12: Total event count at this pixel
+                *np.zeros(output_dim - 13)    # 13+: Placeholder for additional features
             ])
             
             feature_sequence[i] = feature_vector
