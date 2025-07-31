@@ -19,6 +19,8 @@ import time
 from typing import Tuple, List, Dict, Optional
 import glob
 from PIL import Image
+
+# ✅ 修复：torchvision现在完全可用，移除fallback机制
 import torchvision.transforms as transforms
 
 
@@ -48,7 +50,7 @@ class FlareFlickeringSynthesizer:
         self._cache_flare_paths()
     
     def _init_flare_transforms(self):
-        """初始化炫光多样性变换 (Flare7K风格)."""
+        """初始化分离的炫光变换管道 (解决黑框问题)."""
         # 获取目标分辨率
         target_w, target_h = self.target_resolution
         
@@ -57,7 +59,8 @@ class FlareFlickeringSynthesizer:
         translate_w = translate_ratio
         translate_h = translate_ratio
         
-        self.flare_transform = transforms.Compose([
+        # 🚨 分离变换：位置变换 (在大图上进行，保留完整炫光)
+        self.positioning_transform = transforms.Compose([
             # 随机仿射变换 (旋转、缩放、平移、剪切)
             transforms.RandomAffine(
                 degrees=(0, 360),              # 全方向旋转
@@ -65,37 +68,46 @@ class FlareFlickeringSynthesizer:
                 translate=(translate_w, translate_h),  # 相对平移
                 shear=(-20, 20)                # ±20度剪切
             ),
-            # 裁剪到目标分辨率 (关键: 与DSEC分辨率对齐!)
-            transforms.CenterCrop((target_h, target_w)),  # 注意PIL格式是(H,W)
             # 随机翻转增加多样性
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomVerticalFlip(p=0.3),  # 垂直翻转概率稍低
         ])
         
-        print(f"Initialized flare transforms for resolution: {target_w}x{target_h}")
+        # 🚨 裁剪变换：最后阶段裁剪到目标分辨率 (运动+闪烁后)
+        self.final_crop_transform = transforms.CenterCrop((target_h, target_w))
+        
+        print(f"✅ Initialized split flare transforms: positioning + final crop to {target_w}x{target_h}")
         
     def _cache_flare_paths(self):
         """Cache all available flare image paths from both Compound_Flare directories."""
         self.compound_flare_paths = []
         
-        # Check both Flare-R and Flare7K directories
+        # ✅ 修正：正确的两个炫光目录路径
         compound_dirs = [
+            # 1. Flare-R/Compound_Flare/
             os.path.join(self.flare7k_path, "Flare-R", "Compound_Flare"),
-            os.path.join(self.flare7k_path, "Flare7K", "Compound_Flare") if os.path.exists(
-                os.path.join(self.flare7k_path, "Flare7K", "Compound_Flare")) else None
+            # 2. Flare7K/Scattering_Flare/Compound_Flare/ (之前缺失)
+            os.path.join(self.flare7k_path, "Flare7K", "Scattering_Flare", "Compound_Flare")
         ]
         
         for compound_dir in compound_dirs:
-            if compound_dir and os.path.exists(compound_dir):
+            if os.path.exists(compound_dir):
                 patterns = [
                     os.path.join(compound_dir, "*.png"),
                     os.path.join(compound_dir, "*.jpg"),
                     os.path.join(compound_dir, "*.jpeg")
                 ]
+                files_found = 0
                 for pattern in patterns:
-                    self.compound_flare_paths.extend(glob.glob(pattern))
+                    found_files = glob.glob(pattern)
+                    self.compound_flare_paths.extend(found_files)
+                    files_found += len(found_files)
+                
+                print(f"✅ Loaded {files_found} flare images from: {os.path.basename(os.path.dirname(compound_dir))}/Compound_Flare/")
+            else:
+                print(f"⚠️  Directory not found: {compound_dir}")
         
-        print(f"Found {len(self.compound_flare_paths)} flare images in Compound_Flare directories")
+        print(f"📊 Total: {len(self.compound_flare_paths)} flare images from all Compound_Flare directories")
     
     def get_realistic_flicker_frequency(self) -> float:
         """Get a realistic flicker frequency based on real-world power grid standards.
@@ -141,8 +153,8 @@ class FlareFlickeringSynthesizer:
         min_samples = self.synthesis_config['min_samples_per_cycle']
         required_fps = frequency * min_samples
         
-        # Apply maximum limit and优化: 减少帧数以降低计算开销
-        max_fps = min(self.synthesis_config['max_fps'], 500)  # 降低最大帧率
+        # Apply maximum limit (remove hardcoded 500fps constraint)
+        max_fps = self.synthesis_config['max_fps']  # Use configured max_fps directly
         optimal_fps = min(required_fps, max_fps)
         
         # 确保最小帧率足够捕获闪烁
@@ -173,7 +185,7 @@ class FlareFlickeringSynthesizer:
     
     def generate_flicker_curve(self, frequency: float, duration: float, fps: float, 
                              curve_type: str = "sine") -> np.ndarray:
-        """Generate a flickering intensity curve over time.
+        """Generate a realistic flickering intensity curve for artificial light sources.
         
         Args:
             frequency: Flicker frequency in Hz
@@ -182,42 +194,122 @@ class FlareFlickeringSynthesizer:
             curve_type: Type of curve ("sine", "square", "triangle", "exponential")
             
         Returns:
-            Array of intensity multipliers over time (length = duration * fps)
+            Array of intensity multipliers over time with realistic baseline (length = duration * fps)
         """
         num_frames = int(duration * fps)
         t = np.linspace(0, duration, num_frames)
         omega = 2 * np.pi * frequency
         
-        if curve_type == "sine":
-            # Smooth sinusoidal flickering
-            curve = 0.5 * (1 + np.sin(omega * t))
-        elif curve_type == "square":
-            # Sharp on/off flickering
-            curve = 0.5 * (1 + np.sign(np.sin(omega * t)))
-        elif curve_type == "triangle":
-            # Linear ramp flickering
-            phase = (omega * t) % (2 * np.pi)
-            curve = np.where(phase < np.pi, phase / np.pi, 2 - phase / np.pi)
-        elif curve_type == "exponential":
-            # Exponential decay/rise flickering
-            sine_base = np.sin(omega * t)
-            curve = 0.5 * (1 + sine_base * np.exp(-np.abs(sine_base) * 2))
-        else:
-            raise ValueError(f"Unknown curve type: {curve_type}")
+        # 🚨 修复：生成随机最低强度基线 (模拟真实人造光源)
+        min_baseline_range = self.synthesis_config.get('min_intensity_baseline', [0.0, 0.7])
+        min_intensity = random.uniform(min_baseline_range[0], min_baseline_range[1])
+        max_intensity = self.synthesis_config.get('max_intensity', 1.0)
+        intensity_range = max_intensity - min_intensity
         
-        # Ensure curve is in [0, 1] range
-        curve = np.clip(curve, 0.0, 1.0)
+        # 🚨 修复：使用直观的线性变化，避免在最低值附近停滞
+        # 简单的三角波：直线上升→直线下降，变化均匀直观
+        phase = (omega * t) % (2 * np.pi)  # [0, 2π)
+        raw_curve = np.where(phase < np.pi, phase / np.pi, 2 - phase / np.pi)  # [0, 1] 线性变化
+        curve = min_intensity + intensity_range * raw_curve
+        
+        # 记录使用的是简化线性变化
+        curve_type = "linear_triangle"
+        
+        # Ensure curve is in [min_intensity, max_intensity] range
+        curve = np.clip(curve, min_intensity, max_intensity)
+        
+        print(f"  Generated linear_triangle flicker curve: baseline={min_intensity:.2f}, range=[{min_intensity:.2f}, {max_intensity:.2f}]")
         
         return curve
     
+    def _generate_realistic_movement_path(self, duration_sec: float, num_frames: int, 
+                                        resolution: Tuple[int, int]) -> np.ndarray:
+        """Generate realistic movement path for flare based on automotive scenarios.
+        
+        参考自动驾驶场景中的典型运动速度：
+        - 车灯（对向车辆）: 50-80 km/h → 14-22 m/s
+        - 路灯（侧向移动）: 30-60 km/h → 8-17 m/s  
+        - 摄像头安装高度: ~1.5m，焦距: ~28mm，像素密度: ~1 pixel/cm
+        - 换算: 1 m/s ≈ 10-20 pixels/s (取决于距离和焦距)
+        
+        Args:
+            duration_sec: Sequence duration in seconds
+            num_frames: Number of frames in sequence
+            resolution: (width, height) of target resolution
+            
+        Returns:
+            Array of (x, y) positions for each frame, shape: (num_frames, 2)
+        """
+        width, height = resolution
+        
+        # 🚨 修改：使用更大的随机移动范围，不依赖时长
+        # 适应低分辨率场景，确保运动可见性
+        min_distance_pixels = 0.0    # 可以完全不移动
+        max_distance_pixels = 60.0   # 最大移动60像素 (640x480分辨率的~10%)
+        
+        # 直接随机选择移动距离 (像素)
+        total_distance_pixels = random.uniform(min_distance_pixels, max_distance_pixels)
+        
+        # 随机选择运动方向 (角度，0-360度)
+        movement_angle = random.uniform(0, 2 * np.pi)
+        
+        # 计算运动向量
+        dx_total = total_distance_pixels * np.cos(movement_angle)
+        dy_total = total_distance_pixels * np.sin(movement_angle)
+        
+        # 选择起始位置 (确保整个轨迹都在画面内)
+        # 考虑炫光尺寸，留出边界
+        margin = 50  # 50像素边界
+        min_x = margin - min(0, dx_total)
+        max_x = width - margin - max(0, dx_total)
+        min_y = margin - min(0, dy_total)  
+        max_y = height - margin - max(0, dy_total)
+        
+        # 确保起始位置合理
+        if max_x <= min_x:
+            # 水平移动距离太大，使用画面中心
+            start_x = width // 2
+            dx_total = 0  # 禁用水平移动
+        else:
+            start_x = random.uniform(min_x, max_x)
+            
+        if max_y <= min_y:
+            # 垂直移动距离太大，使用画面中心  
+            start_y = height // 2
+            dy_total = 0  # 禁用垂直移动
+        else:
+            start_y = random.uniform(min_y, max_y)
+        
+        # 生成平滑的运动轨迹 (线性插值)
+        t_values = np.linspace(0, 1, num_frames)
+        x_positions = start_x + dx_total * t_values
+        y_positions = start_y + dy_total * t_values
+        
+        # 组合成轨迹数组
+        movement_path = np.column_stack((x_positions, y_positions))
+        
+        # 计算等效速度 (仅用于显示)
+        equivalent_speed = total_distance_pixels / duration_sec if duration_sec > 0 else 0
+        
+        print(f"  Generated movement: {total_distance_pixels:.1f} pixels in {duration_sec:.3f}s "
+              f"(≈{equivalent_speed:.1f} pixels/s), angle={np.degrees(movement_angle):.1f}°")
+        
+        return movement_path
+    
     def load_random_flare_image(self, target_size: Optional[Tuple[int, int]] = None) -> np.ndarray:
-        """Load and transform a random flare image with diversity augmentation.
+        """Load and transform a random flare image using split transform pipeline.
+        
+        🚨 新方法：分离变换管道，避免黑框问题
+        1. 加载原始大图
+        2. 应用位置变换 (旋转、缩放、平移等) - 保持大尺寸
+        3. 返回变换后的大图，供运动+闪烁处理
+        4. 最后由调用方进行裁剪
         
         Args:
             target_size: Optional (width, height) - 如果提供，覆盖默认的DSEC分辨率
             
         Returns:
-            RGB flare image array in [0, 1] range, 已对齐到DSEC分辨率
+            RGB flare image array in [0, 1] range, 已变换但未裁剪 (可能比目标尺寸大)
         """
         if not self.compound_flare_paths:
             raise ValueError("No flare images found in Compound_Flare directories")
@@ -229,28 +321,19 @@ class FlareFlickeringSynthesizer:
             # 使用PIL加载 (支持更多格式，与transforms兼容)
             flare_pil = Image.open(flare_path).convert('RGB')
             
-            # 应用多样性变换 (旋转、缩放、平移、翻转等)
-            flare_transformed = self.flare_transform(flare_pil)
-            
-            # 转换为numpy array
-            flare_rgb = np.array(flare_transformed)
-            
-            # 验证最终分辨率
-            actual_h, actual_w = flare_rgb.shape[:2]
-            expected_w, expected_h = target_size if target_size else self.target_resolution
-            
-            if actual_w != expected_w or actual_h != expected_h:
-                print(f"Warning: Flare resolution mismatch. Expected: {expected_w}x{expected_h}, Got: {actual_w}x{actual_h}")
-                # 强制resize到正确分辨率
-                flare_rgb = cv2.resize(flare_rgb, (expected_w, expected_h))
+            # 🚨 仅应用位置变换，不裁剪 (保留完整炫光)
+            flare_positioned = self.positioning_transform(flare_pil)
+            flare_rgb = np.array(flare_positioned)
             
             # Normalize to [0, 1]
             flare_rgb = flare_rgb.astype(np.float32) / 255.0
             
+            print(f"  Loaded positioned flare: {flare_rgb.shape[:2]} (before final crop)")
+            
             return flare_rgb
             
         except Exception as e:
-            print(f"Error loading/transforming flare image {flare_path}: {e}")
+            print(f"Error loading/positioning flare image {flare_path}: {e}")
             # 回退到简单加载
             return self._load_flare_image_fallback(flare_path, target_size)
     
@@ -276,16 +359,21 @@ class FlareFlickeringSynthesizer:
                                        frequency: Optional[float] = None, 
                                        curve_type: Optional[str] = None,
                                        position: Optional[Tuple[int, int]] = None) -> List[np.ndarray]:
-        """Generate a sequence of flickering video frames from a static flare image.
+        """Generate flickering and moving video frames using natural cropping workflow.
+        
+        🚨 新方法：自然裁剪工作流，消除黑框
+        1. 在变换后的大图上应用闪烁
+        2. 在大图上应用运动轨迹
+        3. 最后裁剪到目标分辨率 (自然边界)
         
         Args:
-            flare_rgb: Static RGB flare image
+            flare_rgb: Positioned RGB flare image (可能比目标尺寸大)
             frequency: Flicker frequency in Hz (if None, uses realistic frequency)
             curve_type: Flicker curve type (if None, random selection)
             position: Optional (x, y) position to place flare, random if None
             
         Returns:
-            List of RGB video frames showing flickering flare
+            List of RGB video frames showing flickering and moving flare
         """
         # Use realistic frequency if not provided
         if frequency is None:
@@ -298,32 +386,81 @@ class FlareFlickeringSynthesizer:
         duration = self.synthesis_config['duration_sec']
         fps = self.calculate_dynamic_fps(frequency)  # Dynamic FPS based on frequency
         
+        # 获取炫光图像的实际尺寸 (变换后的大图)
+        flare_h, flare_w = flare_rgb.shape[:2]
+        target_w, target_h = self.target_resolution
+        
+        print(f"  Working with positioned flare: {flare_h}x{flare_w}, target: {target_h}x{target_w}")
+        
         # Convert RGB to light intensity
         flare_intensity = self.rgb_to_light_intensity(flare_rgb)
         
         # Generate flicker curve
         flicker_curve = self.generate_flicker_curve(frequency, duration, fps, curve_type)
         
-        # Generate video frames
+        # 🚨 简化：直接在变换后的图像上生成运动，不需要额外画布
+        # 确保运动范围不超出最终裁剪边界
+        effective_w = min(flare_w, target_w + 120)  # 给运动留一些空间
+        effective_h = min(flare_h, target_h + 120)
+        
+        movement_path = self._generate_realistic_movement_path(
+            duration, len(flicker_curve), (effective_w, effective_h)
+        )
+        
+        # 🚨 修复：将随机强度缩放移到循环外，避免破坏规律频闪
+        scale_range = self.synthesis_config.get('intensity_scale', [1.0, 1.0])
+        global_scale_factor = random.uniform(scale_range[0], scale_range[1])  # 整个序列统一缩放
+        
         frames = []
-        height, width = flare_intensity.shape
         
         for frame_idx, intensity_multiplier in enumerate(flicker_curve):
-            # Apply flicker to intensity
+            # 1. Apply flicker to the positioned flare image
             flickered_intensity = flare_intensity * intensity_multiplier
             
-            # Convert back to RGB (assuming grayscale flare)
-            # For more realistic results, we could maintain the original color ratios
-            frame_rgb = np.stack([flickered_intensity] * 3, axis=-1)
+            # 保持原始RGB颜色比例
+            original_luminance = self.rgb_to_light_intensity(flare_rgb)
+            safe_luminance = np.where(original_luminance > 1e-8, original_luminance, 1e-8)
+            intensity_ratio = flickered_intensity / safe_luminance
             
-            # Apply intensity scaling if configured
-            scale_range = self.synthesis_config.get('intensity_scale', [1.0, 1.0])
-            scale_factor = random.uniform(scale_range[0], scale_range[1])
-            frame_rgb = np.clip(frame_rgb * scale_factor, 0.0, 1.0)
+            # 按原始颜色比例调制RGB
+            frame_rgb = flare_rgb * np.expand_dims(intensity_ratio, axis=-1)
+            frame_rgb = np.clip(frame_rgb * global_scale_factor, 0.0, 1.0)
             
-            # Convert to uint8 for video output
-            frame_uint8 = (frame_rgb * 255).astype(np.uint8)
-            frames.append(frame_uint8)
+            # 2. 🚨 简化运动：直接平移变换后的炫光图像
+            # 获取当前帧的运动偏移
+            current_pos = movement_path[frame_idx]
+            start_pos = movement_path[0]
+            offset_x = int(current_pos[0] - start_pos[0])
+            offset_y = int(current_pos[1] - start_pos[1]) 
+            
+            # 应用平移 (简单的numpy数组移动)
+            moved_frame = np.zeros_like(frame_rgb)
+            
+            # 计算有效的复制区域
+            src_start_x = max(0, -offset_x)
+            src_end_x = min(flare_w, flare_w - offset_x)
+            src_start_y = max(0, -offset_y)
+            src_end_y = min(flare_h, flare_h - offset_y)
+            
+            dst_start_x = max(0, offset_x)
+            dst_end_x = dst_start_x + (src_end_x - src_start_x)
+            dst_start_y = max(0, offset_y)
+            dst_end_y = dst_start_y + (src_end_y - src_start_y)
+            
+            # 复制移动后的图像
+            if src_end_x > src_start_x and src_end_y > src_start_y:
+                moved_frame[dst_start_y:dst_end_y, dst_start_x:dst_end_x] = \
+                    frame_rgb[src_start_y:src_end_y, src_start_x:src_end_x]
+            
+            # 3. 🚨 关键：自然裁剪到目标分辨率
+            moved_frame_uint8 = (moved_frame * 255).astype(np.uint8)
+            moved_frame_pil = Image.fromarray(moved_frame_uint8)
+            
+            # 应用最终裁剪变换
+            final_frame_pil = self.final_crop_transform(moved_frame_pil)
+            final_frame = np.array(final_frame_pil)
+            
+            frames.append(final_frame)
         
         # Return frames with metadata for debugging
         metadata = {
@@ -332,7 +469,11 @@ class FlareFlickeringSynthesizer:
             'fps': fps,
             'duration_sec': duration,
             'total_frames': len(frames),
-            'samples_per_cycle': fps / frequency
+            'samples_per_cycle': fps / frequency,
+            'movement_distance_pixels': np.linalg.norm(movement_path[-1] - movement_path[0]),
+            'movement_speed_pixels_per_sec': np.linalg.norm(movement_path[-1] - movement_path[0]) / duration,
+            'positioned_flare_size': (flare_h, flare_w),
+            'effective_work_area': (effective_h, effective_w)
         }
         
         return frames, metadata

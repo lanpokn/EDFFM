@@ -108,18 +108,20 @@ class DSECEventDatasetEfficient(Dataset):
                 t = f['events/t'][start_idx:end_idx]
                 p = f['events/p'][start_idx:end_idx]
                 
-                # Convert DSEC polarity to model format (-1,1)
-                p = np.where(p > 0, 1, -1).astype(np.float32)
+                # 🚨 CRITICAL FIX: 保持原始数据类型精度，避免时间戳精度损失
+                # 时间戳使用int64，坐标使用int32，极性使用int8
+                x = x.astype(np.int32)
+                y = y.astype(np.int32)  
+                t = t.astype(np.int64)  # 保持微秒精度
+                p = np.where(p > 0, 1, -1).astype(np.int8)  # DSEC格式: 1/-1
                 
-                # Normalize timestamps to start from 0
-                t = t - t[0]
-                
-                # Stack into format [x, y, t, p]
-                events = np.column_stack([x, y, t, p]).astype(np.float32)
+                # Stack into format [x, y, t, p] with proper dtypes
+                # 注意：这里暂时转换为float64以便后续计算，但保持完整精度
+                events = np.column_stack([x, y, t, p]).astype(np.float64)
                 return events
             else:
                 # Return empty array if no events in window
-                return np.empty((0, 4), dtype=np.float32)
+                return np.empty((0, 4), dtype=np.float64)
 
     def __len__(self):
         return self.total_windows

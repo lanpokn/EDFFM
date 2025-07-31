@@ -23,7 +23,9 @@ from typing import Tuple, List, Dict, Optional, Union
 
 # Import existing efficient loaders
 from src.dsec_efficient import DSECEventDatasetEfficient
-from src.dvs_flare_integration import DVSFlareEventGenerator
+from src.dvs_flare_integration import create_flare_event_generator
+from src.feature_extractor import FeatureExtractor
+from src.event_visualization_utils import EventVisualizer
 
 
 class MixedFlareDataset(Dataset):
@@ -47,8 +49,15 @@ class MixedFlareDataset(Dataset):
             sequence_length=config['data']['sequence_length']
         )
         
-        # Initialize flare event generator
-        self.flare_generator = DVSFlareEventGenerator(config)
+        # Initialize flare event generator (使用工厂函数自动选择仿真器)
+        self.flare_generator = create_flare_event_generator(config)
+        
+        # 记录使用的仿真器类型
+        simulator_type = config['data']['event_simulator']['type']
+        print(f"Using {simulator_type.upper()} simulator for flare event generation")
+        
+        # ✅ 关键修正：初始化特征提取器（在数据集阶段进行特征提取）
+        self.feature_extractor = FeatureExtractor(config)
         
         # Cache for generated flare events (to avoid regenerating identical sequences)
         self.flare_cache = {}
@@ -61,11 +70,29 @@ class MixedFlareDataset(Dataset):
         self.sequence_length = config['data']['sequence_length']
         self.flare_mix_probability = 0.5  # 50% chance of adding flare to each sample
         
-        print(f"Initialized MixedFlareDataset ({split}): {len(self.dsec_dataset)} background samples")
+        # Debug mode: limit samples for quick validation
+        self.max_samples = config['data'].get('max_samples_debug', None)
+        self.debug_mode = config.get('debug_mode', False)
+        
+        if self.max_samples:
+            print(f"DEBUG MODE: Limiting to {self.max_samples} samples for quick validation")
+        
+        # 初始化事件可视化器 (仅在debug模式下)
+        self.event_visualizer = None
+        if self.debug_mode:
+            viz_output_dir = os.path.join(config.get('debug_output_dir', './output/debug'), 'event_analysis')
+            resolution = (config['data']['resolution_w'], config['data']['resolution_h'])
+            self.event_visualizer = EventVisualizer(viz_output_dir, resolution)
+            print(f"🚨 DEBUG MODE: Event visualization enabled, output: {viz_output_dir}")
+        
+        print(f"Initialized MixedFlareDataset ({split}): {len(self)} background samples")
         
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
-        return len(self.dsec_dataset)
+        original_length = len(self.dsec_dataset)
+        if self.max_samples:
+            return min(self.max_samples, original_length)
+        return original_length
     
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get a randomized mixed sample with advanced generalization features.
@@ -88,11 +115,25 @@ class MixedFlareDataset(Dataset):
             # 3. 安全检查和最终处理
             combined_events, labels = self._apply_final_processing(combined_events, labels)
             
-            # 4. 转换为tensor
-            events_tensor = torch.tensor(combined_events, dtype=torch.float32)
-            labels_tensor = torch.tensor(labels, dtype=torch.long)
+            # 🚨 DEBUG模式：可视化事件处理管线 (仅限前几个样本)
+            if self.event_visualizer is not None and idx < 3:  # 只可视化前3个样本
+                # 获取分离的背景和炫光事件用于可视化对比
+                background_events_viz, flare_events_viz = self._get_separated_events_for_viz(idx, scenario)
+                
+                # 进行完整的事件管线可视化分析
+                density_stats = self.event_visualizer.analyze_and_visualize_pipeline(
+                    background_events_viz, flare_events_viz, combined_events, labels, idx
+                )
             
-            return events_tensor, labels_tensor
+            # ✅ 关键修正：在数据集阶段进行11维PFD特征提取（而非模型内部）
+            # 这样保证特征提取基于完整的时序事件序列，具有物理意义
+            features = self.feature_extractor.process_sequence(combined_events)  # [N, 4] → [N, 11]
+            
+            # 4. 转换为tensor
+            features_tensor = torch.tensor(features, dtype=torch.float32)  # [N, 11] 特征
+            labels_tensor = torch.tensor(labels, dtype=torch.long)  # [N] 标签
+            
+            return features_tensor, labels_tensor
         
         except Exception as e:
             print(f"Error in __getitem__({idx}): {e}")
@@ -199,18 +240,37 @@ class MixedFlareDataset(Dataset):
     def _apply_random_offsets_and_merge(self, background_events: np.ndarray, 
                                       flare_events: np.ndarray, config: Dict) -> Tuple[np.ndarray, np.ndarray]:
         """应用随机偏移并合并事件."""
-        # 1. 应用随机偏移
+        # 🚨 CRITICAL FIX: 确保时间轴对齐，避免事件流分离
+        # 策略：将两个事件流都normalize到从0开始，然后应用少量重叠偏移
+        
+        # 1. 先对齐到相同的时间基准(从0开始)
         if len(background_events) > 0:
-            bg_offset = random.uniform(*config['background_offset_range']) * 1e6  # 转换为微秒
             background_events = background_events.copy()
-            background_events[:, 2] += bg_offset
+            bg_t_min = background_events[:, 2].min()
+            background_events[:, 2] = background_events[:, 2] - bg_t_min  # 从0开始
         
         if len(flare_events) > 0:
-            flare_offset = random.uniform(*config['flare_offset_range']) * 1e6
-            # 炫光事件需要格式转换和偏移
-            flare_formatted = self._format_flare_events_simple(flare_events, flare_offset)
+            # 炫光事件需要格式转换，但不加偏移(保持从0开始)
+            flare_formatted = self._format_flare_events_simple(flare_events, 0.0)
+            if len(flare_formatted) > 0:
+                flare_t_min = flare_formatted[:, 2].min()
+                flare_formatted[:, 2] = flare_formatted[:, 2] - flare_t_min  # 从0开始
         else:
             flare_formatted = np.empty((0, 4))
+        
+        # 2. 应用小量重叠偏移 (确保两个流有时间重叠)
+        if len(background_events) > 0 and len(flare_formatted) > 0:
+            # 获取两个流的持续时间
+            bg_duration = background_events[:, 2].max() - background_events[:, 2].min()
+            flare_duration = flare_formatted[:, 2].max() - flare_formatted[:, 2].min()
+            
+            # 计算最大可能的偏移(确保有重叠)
+            max_safe_offset = max(bg_duration, flare_duration) * 0.3  # 最多30%的偏移
+            
+            # 应用小量随机偏移(炫光事件稍后开始，营造真实感)
+            if max_safe_offset > 0:
+                flare_offset = random.uniform(0, max_safe_offset)
+                flare_formatted[:, 2] += flare_offset
         
         # 2. 合并事件
         if len(background_events) == 0 and len(flare_formatted) == 0:
@@ -245,10 +305,9 @@ class MixedFlareDataset(Dataset):
         formatted_events[:, 2] = flare_events[:, 0] + time_offset  # t + offset
         formatted_events[:, 3] = flare_events[:, 3]  # p
         
-        # Convert polarity if needed
-        unique_polarities = np.unique(formatted_events[:, 3])
-        if np.any(unique_polarities > 1):
-            formatted_events[:, 3] = np.where(formatted_events[:, 3] > 0, 1, -1)
+        # Convert DVS polarity (1/0) to DSEC format (1/-1)
+        # DVS: 1=ON, 0=OFF → DSEC: 1=ON, -1=OFF
+        formatted_events[:, 3] = np.where(formatted_events[:, 3] > 0, 1, -1)
         
         return formatted_events
     
@@ -292,6 +351,13 @@ class MixedFlareDataset(Dataset):
             combined_events = combined_events[indices]
             labels = labels[indices]
         
+        # 🚨 CRITICAL FIX: 在特征提取前normalize时间戳
+        # 只有在这里合并完成后才能安全地normalize，保证事件时间关系正确
+        if len(combined_events) > 0:
+            # 将时间戳normalize到从0开始
+            t_min = combined_events[:, 2].min()
+            combined_events[:, 2] = combined_events[:, 2] - t_min
+            
         return combined_events, labels
     
     def _safe_fallback_sample(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -632,6 +698,82 @@ class MixedFlareDataset(Dataset):
         }
 
 
+    def _get_separated_events_for_viz(self, idx: int, scenario: str) -> Tuple[np.ndarray, np.ndarray]:
+        """获取分离的背景和炫光事件用于可视化对比分析.
+        
+        Args:
+            idx: 样本索引
+            scenario: 场景类型
+            
+        Returns:
+            Tuple of (background_events, flare_events) for visualization
+        """
+        config = self.config['data']['randomized_training']
+        
+        # 生成背景事件
+        background_events = np.empty((0, 4))
+        if scenario in ["background_with_flare", "background_only"]:
+            try:
+                background_events = self._generate_random_background_events(idx, config)
+            except Exception as e:
+                print(f"Warning: Failed to generate background events for viz: {e}")
+        
+        # 生成炫光事件
+        flare_events = np.empty((0, 4))
+        if scenario in ["background_with_flare", "flare_only"]:
+            try:
+                flare_events_raw = self._generate_random_flare_events(config)
+                # 🚨 CRITICAL FIX: 可视化使用原始绝对时间戳，不做normalize
+                # DVS输出格式 [t, x, y, p] 需要转换为 [x, y, t, p] 以匹配DSEC格式
+                if len(flare_events_raw) > 0:
+                    # 转换格式但保持原始时间戳（不加offset，用于可视化分析）
+                    flare_events = self._format_flare_events_simple(flare_events_raw, 0.0)
+            except Exception as e:
+                print(f"Warning: Failed to generate flare events for viz: {e}")
+        
+        return background_events, flare_events
+
+
+def variable_length_collate_fn(batch, sequence_length):
+    """
+    Custom collate function to handle variable-length event sequences.
+    
+    Args:
+        batch: List of (events_tensor, labels_tensor) tuples
+        sequence_length: Target sequence length from config
+        
+    Returns:
+        Tuple of (batched_events, batched_labels)
+        batched_events: [batch_size, sequence_length, 4]
+        batched_labels: [batch_size, sequence_length]
+    """
+    batch_size = len(batch)
+    
+    # Initialize output tensors
+    batched_events = torch.zeros((batch_size, sequence_length, 4), dtype=torch.float32)
+    batched_labels = torch.zeros((batch_size, sequence_length), dtype=torch.long)
+    
+    for i, (events, labels) in enumerate(batch):
+        n_events = len(events)
+        
+        if n_events == 0:
+            # Empty sequence - keep as zeros (padding)
+            continue
+        elif n_events <= sequence_length:
+            # Pad with zeros if sequence is shorter
+            batched_events[i, :n_events] = events
+            batched_labels[i, :n_events] = labels
+            # Remaining positions stay as zero padding
+        else:
+            # Truncate if sequence is longer - sample uniformly
+            # Use uniform sampling to preserve temporal distribution
+            indices = np.linspace(0, n_events-1, sequence_length, dtype=int)
+            batched_events[i] = events[indices]
+            batched_labels[i] = labels[indices]
+    
+    return batched_events, batched_labels
+
+
 def create_mixed_flare_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """Create DataLoaders for mixed flare datasets.
     
@@ -641,19 +783,25 @@ def create_mixed_flare_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader
     Returns:
         Tuple of (train_loader, val_loader, test_loader)
     """
+    sequence_length = config['data']['sequence_length']
+    
+    # Create custom collate function with sequence_length parameter
+    collate_fn = lambda batch: variable_length_collate_fn(batch, sequence_length)
+    
     # Create datasets
     train_dataset = MixedFlareDataset(config, split='train')
     val_dataset = MixedFlareDataset(config, split='val')
     test_dataset = MixedFlareDataset(config, split='test')
     
-    # Create DataLoaders
+    # Create DataLoaders with custom collate function
     train_loader = DataLoader(
         train_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=True,
         num_workers=config['data']['num_workers'],
         pin_memory=True,
-        drop_last=True
+        drop_last=True,
+        collate_fn=collate_fn
     )
     
     val_loader = DataLoader(
@@ -661,7 +809,8 @@ def create_mixed_flare_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader
         batch_size=config['evaluation']['batch_size'],
         shuffle=False,
         num_workers=config['data']['num_workers'],
-        pin_memory=True
+        pin_memory=True,
+        collate_fn=collate_fn
     )
     
     test_loader = DataLoader(
@@ -669,7 +818,8 @@ def create_mixed_flare_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader
         batch_size=config['evaluation']['batch_size'],
         shuffle=False,
         num_workers=config['data']['num_workers'],
-        pin_memory=True
+        pin_memory=True,
+        collate_fn=collate_fn
     )
     
     return train_loader, val_loader, test_loader

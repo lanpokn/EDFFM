@@ -10,33 +10,118 @@ run:
 # --- 数据集设置 (Data Settings) ---
 data:
   # DSEC数据集路径 (使用内存高效版本)
+  #/xxx/events/left/events.h5
   dsec_path: "/mnt/e/2025/event_flick_flare/object_detection/dsec-det-master/data/train"
   
   # Flare7Kpp数据集路径 (Compound_Flare散射数据)
+  # Flare7K/Scattering_Flare/Scattering_Flare and  Flare-R/Compound_Flare
   flare7k_path: "/mnt/e/2025/physical_deflare/Datasets/Flare7Kpp/Flare7Kpp"
   
-  # 随机化训练数据生成策略 (提高泛化能力)
-  randomized_training:
-    # 背景事件随机长度范围 (避免过长导致内存压力)
-    background_duration_range: [0.3, 1.2]   # 0.3-1.2秒 (适中范围)
-    # 炫光事件随机长度范围 (避免仿真器压力过大)  
-    flare_duration_range: [0.2, 0.8]        # 0.2-0.8秒 (控制帧数)
+  # 事件仿真器选择 (Event Simulator Selection)
+  event_simulator:
+    type: "dvs_voltmeter"           # 选择仿真器: "dvs_voltmeter", "v2ce", or "iebcs" 
     
-    # 双向随机偏移范围 (两者都可以有时间偏移)
-    background_offset_range: [0.0, 0.3]     # 背景事件偏移0-0.3秒
-    flare_offset_range: [0.0, 0.5]          # 炫光事件偏移0-0.5秒
+    # DVS-Voltmeter 配置 (传统仿真器)
+    dvs_voltmeter:
+      simulator_path: "/mnt/e/2025/event_flick_flare/main/simulator/DVS-Voltmeter-main"
+      timeout_sec: 60
+      
+      # DVS参数调优 (基于物理原理减少事件数量)
+      parameters:
+        # DVS346参数 [k1, k2, k3, k4, k5, k6] - 基于Brownian Motion with Drift模型
+        # 论文Eq.(10): ΔVd = (k1/(L+k2))·kdL·Δt + (k3/(L+k2))·√L·W(Δt) + k4·Δt + k5·L·Δt + k6·W(Δt)
+        # 
+        # 物理意义:
+        # k1: 光-电转换系数 (越小->对光变化敏感度越低->事件越少)
+        # k2: 暗电流偏移 (越大->分母越大->敏感度越低->事件越少) 
+        # k3: 光子噪声系数 (越小->随机触发越少->事件越少)
+        # k4: 温度漏电流 (影响背景事件率)
+        # k5: 寄生光电流 (越小->亮度相关噪声越少->事件越少)
+        # k6: 漏电流噪声 (越小->随机噪声越少->事件越少)
+        #
+        # GitHub原始DVS参数 (真正的59K events/ms版本)
+        dvs346_k: [5.265, 20, 0.0001, 1e-7, 5e-9, 0.00001]  # 0.00018 * 29250 = 5.265
+        
+        # DVS240参数 (GitHub原始)
+        dvs240_k: [4.424, 23, 0.0002, 1e-7, 5e-8, 0.00001]  # 0.000094 * 47065 = 4.424
+      
+    # V2CE 配置 (新的深度学习仿真器)  
+    v2ce:
+      model_path: "/mnt/e/2025/event_flick_flare/main/simulator/V2CE-Toolbox-master/weights/v2ce_3d.pt"
+      toolbox_path: "/mnt/e/2025/event_flick_flare/main/simulator/V2CE-Toolbox-master"
+      seq_len: 16                   # V2CE序列长度 (更短，效率更高)
+      infer_type: "center"          # "center" or "pano"
+      batch_size: 1                 # V2CE批处理大小 
+      height: 260                   # V2CE标准高度
+      width: 346                    # V2CE标准宽度
+      
+      # 动态帧率配置 (根据炫光频率和时长自适应)
+      base_fps: 200                 # 基础帧率 (最低200fps)
+      max_fps: 1600                 # 最大帧率限制 (匹配flare_synthesis)
+      min_samples_per_cycle: 8      # 每个闪烁周期最少采样数
+      fps_scale_factor: 1.5         # 帧率缩放因子
+      
+      ceil: 10                      # 事件帧上限值
+      upper_bound_percentile: 98    # 事件帧上界百分位
+    
+    # IEBCS 配置 (ICNS Event Based Camera Simulator)
+    iebcs:
+      simulator_path: "/mnt/e/2025/event_flick_flare/main/simulator/IEBCS-main"
+      timeout_sec: 60
+      
+      # IEBCS传感器参数 (基于DVS346规格)
+      sensor_parameters:
+        th_pos: 0.4                # ON阈值 (对数域)
+        th_neg: 0.4                # OFF阈值 (对数域)  
+        th_noise: 0.01             # 阈值噪声标准差
+        latency: 100               # 延迟 (微秒)
+        tau: 40                    # 前端时间常数 (微秒)
+        jitter: 10                 # 时间抖动标准差 (微秒)
+        bgnp: 0.1                  # ON事件噪声率 (events/pixel/s)
+        bgnn: 0.01                 # OFF事件噪声率 (events/pixel/s)
+        refractory: 100            # 不应期 (微秒)
+        dt: 500                    # 帧间时间间隔 (微秒) - 减半提高频闪采样
+        
+      # 动态帧率计算 (确保频闪质量)
+      frame_generation:
+        min_samples_per_cycle: 12  # 每个闪烁周期最少采样点数 (与其他仿真器一致)
+        max_fps: 600               # 最大帧率限制 (提高以反映频闪)
+        base_fps: 300              # 基础帧率
+        
+      # 多时间窗口事件可视化 (与DVS一致)
+      debug_visualization:
+        enable_multi_timewindow: true    # 启用多时间窗口可视化 (仅在debug模式下)
+        time_window_scales: [0.5, 1, 2, 4] # 时间窗口倍数 (事件积累时长)
+        temporal_subdivisions: 5          # 每帧时间细分数 (与DVS一致)
+        
+      # 噪声模型配置 (可选)
+      noise_model:
+        enable_measured_noise: false  # 是否使用测量的噪声分布
+        noise_pos_file: "data/noise_pos_161lux.npy"
+        noise_neg_file: "data/noise_neg_161lux.npy"
+  
+  # 随机化训练数据生成策略 (8x加速: 所有时长除以8)
+  randomized_training:
+    # 背景事件随机长度范围 (8x加速)
+    background_duration_range: [0.0375, 0.15]   # 37.5-150ms (原1/8)
+    # 炫光事件随机长度范围 (保持原始范围)  
+    flare_duration_range: [0.025, 0.1]          # 25-100ms (原始范围，通过提高帧密度改善质量)
+    
+    # 双向随机偏移范围 (8x加速)
+    background_offset_range: [0.0, 0.0375]      # 背景事件偏移0-37.5ms (原1/8)
+    flare_offset_range: [0.0, 0.0625]           # 炫光事件偏移0-62.5ms (原1/8)
     
     # 训练集偏向设置 (保持常见场景为主)
     background_contains_flare_prob: 0.75    # 75%情况下背景包含炫光
     flare_only_prob: 0.1                    # 10%只有炫光事件
     background_only_prob: 0.15              # 15%只有背景事件
     
-    # 最终输入长度随机化 (给Mamba的输入)
-    final_duration_range: [0.4, 1.5]        # 最终序列0.4-1.5秒
+    # 最终输入长度随机化 (8x加速)
+    final_duration_range: [0.05, 0.1875]        # 最终序列50-187.5ms (原1/8)
     
-    # 安全限制 (防止内存/计算压力)
-    max_total_duration: 2.0                 # 绝对最大时长2秒
-    max_flare_frames: 400                    # 炫光最大帧数限制
+    # 安全限制 (8x加速调整)
+    max_total_duration: 0.25                # 绝对最大时长250ms (原1/8)
+    max_flare_frames: 200                   # 炫光最大帧数限制 (减半适应短时长)
     
   # 合成flare事件的参数 (基于真实人造光源闪烁频率)  
   flare_synthesis:
@@ -53,13 +138,18 @@ data:
     # 随机变化范围 (±Hz, 模拟电网不稳定、调光器、老化等因素)
     frequency_variation: 5.0             # ±5Hz随机变化
     
-    # 动态帧率计算 (基于频率自动调整, 已优化)
-    min_samples_per_cycle: 6             # 每个闪烁周期最少采样点数 (降低)
-    max_fps: 400                         # 最大帧率限制 (进一步降低)
+    # 动态帧率计算 (提高帧密度确保充分采样)
+    min_samples_per_cycle: 24            # 每个闪烁周期最少采样点数 (翻倍提高密度)
+    max_fps: 3000                        # 最大帧率限制 (大幅提高支持高密度采样)
     
     flicker_curves: ["sine", "square", "triangle", "exponential"]  # 闪烁曲线类型
     position_random: true                # 随机flare位置
-    intensity_scale: [0.5, 2.0]        # 强度缩放范围
+    intensity_scale: [0.8, 1.2]        # 强度缩放范围 (减小随机性，避免破坏频闪规律)
+    duration_sec: 0.1                   # 炫光序列基础时长 (保持原始，通过帧密度提升质量)
+    
+    # 真实人造光源强度范围 (避免完全黑屏)
+    min_intensity_baseline: [0.0, 0.7]  # 最低强度随机范围 (0-70%)
+    max_intensity: 1.0                  # 最大强度 (100%)
   
   # 向后兼容参数 (保持原有接口)
   time_window_us: 1000000   # 1 second (基础参数，会被随机化覆盖)
@@ -69,13 +159,14 @@ data:
   resolution_w: 640
 
   # DataLoader 参数 
-  sequence_length: 8     # 超小序列长度进行快速验证
+  sequence_length: 64     # 合理的序列长度进行有效训练（4太小了！）
   num_workers: 0          # 加载数据的进程数 (set to 0 for debugging)
+  max_samples_debug: 4   # Debug模式：只使用4个样本（2个batch快速验证）
 
 # --- 模型架构设置 (Model Architecture Settings) ---
 model:
   # 特征提取器输出的维度，同时也是Mamba嵌入层之前的输入维度 (优化为13维)
-  input_feature_dim: 13     
+  input_feature_dim: 11     
   
   # Mamba 骨干网络参数 - 可根据显卡性能调整
   d_model: 128            # Mamba 内部的工作维度 (可调整: 64/128/256/512)
@@ -106,7 +197,7 @@ feature_extractor:
 # --- 训练设置 (Training Settings) ---
 training:
   epochs: 1  # 验证用，只训练1轮
-  batch_size: 2  # 更小的batch size进行快速验证
+  batch_size: 2  # 小batch size避免内存爆炸！！！重要安全措施
   learning_rate: 0.001
   checkpoint_dir: "./checkpoints" # 保存模型权重的目录
 
