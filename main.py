@@ -2,9 +2,8 @@ import argparse
 import yaml
 import torch
 
-from src.mixed_flare_dataloaders import create_mixed_flare_dataloaders
 from src.model import EventDenoisingMamba # 确认导入的是修正后的模型
-from src.trainer import Trainer
+from src.epoch_based_trainer import create_epoch_based_trainer
 from src.evaluate import Evaluator
 
 def main(config):
@@ -14,24 +13,21 @@ def main(config):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    # 1. 创建数据集加载器 (混合flare数据)
-    train_loader, val_loader, test_loader = create_mixed_flare_dataloaders(config)
-
-    # 2. 初始化模型 (关键修正)
-    # 现在我们将特征提取器和Mamba模型的配置分开传递
+    # 1. 初始化模型 (现在直接接收11维特征)
     model = EventDenoisingMamba(config).to(device)
     
     print(f"Model initialized with {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters.")
+    print(f"Model expects {config['model']['input_feature_dim']}-dimensional features")
 
-    # 3. 根据模式选择执行
+    # 2. 根据模式选择执行
     if config['run']['mode'] == 'train':
-        trainer = Trainer(model, train_loader, val_loader, config, device)
+        # 使用新的epoch-based训练器
+        trainer = create_epoch_based_trainer(model, config, device)
         trainer.train()
     elif config['run']['mode'] == 'evaluate':
-        evaluator = Evaluator(model, test_loader, config, device)
-        model.load_state_dict(torch.load(config['evaluation']['checkpoint_path']))
-        print(f"Loaded checkpoint from: {config['evaluation']['checkpoint_path']}")
-        evaluator.evaluate()
+        # TODO: 需要实现epoch-based评估器
+        print("Evaluation mode not yet implemented for epoch-based architecture")
+        print("Please set mode to 'train' in config.yaml")
     else:
         raise ValueError(f"Unknown mode: {config['run']['mode']}")
 

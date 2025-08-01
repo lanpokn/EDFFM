@@ -25,7 +25,7 @@ class FeatureExtractor:
             feature_sequence (np.array): Shape: [sequence_length, output_dim]
         """
         num_events = raw_events.shape[0]
-        output_dim = 13  # Fixed to 13 dimensions (only meaningful features)
+        output_dim = 11  # Fixed to 11 dimensions (removed last 2 global features)
         feature_sequence = np.zeros((num_events, output_dim))
 
         # Initialize traditional time maps
@@ -115,7 +115,7 @@ class FeatureExtractor:
             current_polarity_changes = polarity_change_map[iy, ix]
             current_event_count = event_count_map[iy, ix]
             
-            # Create optimized 13-dimensional feature vector (works with any NxN neighborhood)
+            # Create optimized 11-dimensional feature vector (removed last 2 global features)
             # Apply additional normalization/clipping to ensure stable ranges
             feature_vector = np.array([
                 np.clip(x_center, -1, 1),            # 0: Center-relative x [-1,1]
@@ -129,8 +129,6 @@ class FeatureExtractor:
                 np.clip(d_neighborhood, 0, 10),      # 8: Polarity change density [0,10]
                 np.clip(pfd_a_score, 0, 100),        # 9: PFD-A denoising score [0,100]
                 np.clip(pfd_b_score, 0, 10),         # 10: PFD-B flicker detection score [0,10]
-                np.clip(current_polarity_changes, 0, 100),  # 11: Total polarity changes [0,100]
-                np.clip(current_event_count, 0, 1000),      # 12: Total event count [0,1000]
             ])
             
             feature_sequence[i] = feature_vector
