@@ -115,12 +115,14 @@ class EpochBasedEventDataset(Dataset):
         background_events = np.empty((0, 4))
         if scenario in ["background_with_flare", "background_only"]:
             background_events = self._generate_random_background_events(config)
+            background_events = self._validate_event_coordinates(background_events, "background_events")
             print(f"Generated background events: {len(background_events):,}")
         
         # 3. Generate flare events
         flare_events = np.empty((0, 4))
         if scenario in ["background_with_flare", "flare_only"]:
             flare_events = self._generate_random_flare_events(config)
+            flare_events = self._validate_event_coordinates(flare_events, "flare_events")
             print(f"Generated flare events: {len(flare_events):,}")
         
         # 4. Apply random offsets and merge
@@ -130,6 +132,9 @@ class EpochBasedEventDataset(Dataset):
         
         # 5. Apply final processing
         combined_events, labels = self._apply_final_processing(combined_events, labels)
+        
+        # 6. Final coordinate validation
+        combined_events = self._validate_event_coordinates(combined_events, "combined_events")
         
         return combined_events, labels
     
@@ -196,31 +201,53 @@ class EpochBasedEventDataset(Dataset):
                 flare_events = flare_events[indices]
                 
         except Exception as e:
-            print(f"Error in flare generation: {e}, using fallback...")
-            flare_events = self._generate_synthetic_flare_fallback(flare_duration)
+            print(f"❌ CRITICAL ERROR in flare generation: {e}")
+            print("FALLBACK DISABLED - DVS simulation must work!")
+            print("Detailed error information:")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"DVS simulation failed and fallback is disabled: {e}")
         finally:
             self.config['data']['flare_synthesis']['duration_sec'] = original_duration
         
         return flare_events
     
-    def _generate_synthetic_flare_fallback(self, duration: float) -> np.ndarray:
-        """Generate synthetic flare events as fallback."""
-        duration_us = int(duration * 1e6)
-        num_events = min(1000, int(duration * 5000))
+    def _validate_event_coordinates(self, events: np.ndarray, event_type: str) -> np.ndarray:
+        """Validate and fix event coordinates to be within resolution bounds.
         
-        events = []
-        for i in range(num_events):
-            t = random.randint(0, duration_us)
-            x = random.randint(50, 590)
-            y = random.randint(50, 430)
-            p = random.choice([-1, 1])
-            events.append([t, x, y, p])
+        Args:
+            events: Event array [N, 4] with [x, y, t, p] format
+            event_type: Type description for logging
+            
+        Returns:
+            Validated events with coordinates clamped to resolution
+        """
+        if len(events) == 0:
+            return events
+            
+        # Get resolution from config
+        max_x = self.config['data']['resolution_w'] - 1  # 639 for 640x480
+        max_y = self.config['data']['resolution_h'] - 1  # 479 for 640x480
         
-        events = np.array(events)
-        if len(events) > 0:
-            events = events[np.argsort(events[:, 0])]  # Sort by timestamp
+        # Check for invalid coordinates
+        invalid_x = (events[:, 0] < 0) | (events[:, 0] > max_x)
+        invalid_y = (events[:, 1] < 0) | (events[:, 1] > max_y)
+        
+        if np.any(invalid_x) or np.any(invalid_y):
+            print(f"⚠️  COORDINATE BUG DETECTED in {event_type}:")
+            print(f"   Resolution: {max_x+1}x{max_y+1}")
+            print(f"   Invalid X coords: {np.sum(invalid_x)} events")
+            print(f"   Invalid Y coords: {np.sum(invalid_y)} events")
+            print(f"   X range: [{events[:, 0].min():.1f}, {events[:, 0].max():.1f}]")
+            print(f"   Y range: [{events[:, 1].min():.1f}, {events[:, 1].max():.1f}]")
+            
+            # Clamp coordinates to valid range
+            events[:, 0] = np.clip(events[:, 0], 0, max_x)
+            events[:, 1] = np.clip(events[:, 1], 0, max_y)
+            print(f"   ✅ Coordinates clamped to valid range")
         
         return events
+    
     
     def _apply_random_offsets_and_merge(self, background_events: np.ndarray, 
                                       flare_events: np.ndarray, config: Dict) -> Tuple[np.ndarray, np.ndarray]:

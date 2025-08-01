@@ -149,9 +149,17 @@ class DVSFlareEventGenerator:
                 raise RuntimeError(f"DVS simulator failed: {result.stderr}")
             
             # Load generated events (DVS simulator outputs to OUT_PATH/video_name.txt)
+            # The simulator outputs to OUT_PATH/flare_sequence.txt based on the directory name
             output_file = os.path.join(input_dir, "flare_sequence.txt")  
             if not os.path.exists(output_file):
-                raise FileNotFoundError(f"DVS simulator output not found: {output_file}")
+                # Also check for other possible output locations
+                alt_output_file = os.path.join(input_dir, "flare_sequence", "flare_sequence.txt")
+                if os.path.exists(alt_output_file):
+                    output_file = alt_output_file
+                else:
+                    # List all .txt files in the output directory for debugging
+                    txt_files = [f for f in os.listdir(input_dir) if f.endswith('.txt')]
+                    raise FileNotFoundError(f"DVS simulator output not found: {output_file}. Available files: {txt_files}")
             
             # Parse events
             events = self._parse_event_file(output_file)
@@ -232,14 +240,26 @@ class DVSFlareEventGenerator:
             with open(backup_path, 'w') as f:
                 f.write(config_content)
         
-        # Modify paths in config
+        # Fix the path replacement - need to match the actual format in config.py
         modified_content = config_content.replace(
-            "IN_PATH = 'data_samples/interp/'",
-            f"IN_PATH = '{input_dir}/'"
+            "__C.DIR.IN_PATH = '/tmp/flare_events_4kx_xqe4/'",
+            f"__C.DIR.IN_PATH = '{input_dir}'"
         ).replace(
-            "OUT_PATH = 'data_samples/output/'", 
-            f"OUT_PATH = '{input_dir}/'"
+            "__C.DIR.OUT_PATH = '/tmp/flare_events_4kx_xqe4/'", 
+            f"__C.DIR.OUT_PATH = '{input_dir}'"
         )
+        
+        # Also handle any remaining old paths
+        if "data_samples/interp/" in modified_content:
+            modified_content = modified_content.replace(
+                "data_samples/interp/",
+                f"{input_dir}/"
+            )
+        if "data_samples/output/" in modified_content:
+            modified_content = modified_content.replace(
+                "data_samples/output/", 
+                f"{input_dir}/"
+            )
         
         # Write modified config
         with open(config_path, 'w') as f:
