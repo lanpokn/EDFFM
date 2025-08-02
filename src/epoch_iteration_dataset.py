@@ -53,8 +53,7 @@ class EpochIterationDataset(Dataset):
         self.dsec_dataset = DSECEventDatasetEfficient(
             dsec_path=config['data']['dsec_path'],
             flare_path="",  # Not used for background events
-            time_window_us=config['data']['time_window_us'],
-            sequence_length=config['data']['sequence_length']
+            time_window_us=config['data']['time_window_us']
         )
         
         # Initialize flare event generator
@@ -152,19 +151,12 @@ class EpochIterationDataset(Dataset):
         duration_ms = random.uniform(self.min_duration_ms, self.max_duration_ms)
         duration_us = int(duration_ms * 1000)
         
-        # Random DSEC sample
+        # Random DSEC sample - now returns numpy array directly
         idx = random.randint(0, len(self.dsec_dataset) - 1)
-        background_data = self.dsec_dataset[idx]
+        background_events = self.dsec_dataset[idx]  # Returns np.ndarray [N, 4]
         
-        if isinstance(background_data, tuple):
-            background_events = background_data[0]
-        else:
-            background_events = background_data
-            
-        if isinstance(background_events, torch.Tensor):
-            background_events = background_events.numpy()
-        
-        # Crop to desired duration
+        # 🚨 CRITICAL FIX: Now background_events should contain ALL events in time window
+        # Crop to desired duration if current window is longer than desired
         if len(background_events) > 0:
             t_min = background_events[:, 2].min()
             t_max = background_events[:, 2].max()
@@ -181,6 +173,7 @@ class EpochIterationDataset(Dataset):
                 mask = (background_events[:, 2] >= start_time) & (background_events[:, 2] < end_time)
                 background_events = background_events[mask]
         
+        print(f"    Background events loaded: {len(background_events)} events, duration: {duration_ms:.1f}ms")
         return background_events if len(background_events) > 0 else np.empty((0, 4))
     
     def _generate_flare_events(self) -> np.ndarray:

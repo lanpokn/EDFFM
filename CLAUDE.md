@@ -25,32 +25,28 @@ EventMamba-FX is a Feature-Augmented Mamba model for real-time event denoising a
 - **Debug System**: Multi-resolution event visualization (0.5x/1x/2x/4x) + movement trajectories
 - **Memory Efficient**: DSEC dataset integration with <100MB usage, 1440x1440→640x480 natural cropping
 
-## Core Data Flow (Corrected & Verified) ✅
+## Core Data Flow (FIXED & VERIFIED 2025-08-02) ✅
 ```
-CORRECT Training Data Pipeline:
-1. Dataset.__getitem__() (Outer Loop) - 关键修正：
-   - Load DSEC background events [N1, 4] (x,y,t,p)
-   - Generate flare events via DVS simulator [N2, 4]
-   - Merge → complete_events [N_total, 4] (完整时序事件序列)
-   - ✅ 11D PFD特征提取 complete_events → features [N_total, 11] (在这一步！)
-   - Generate labels [N_total] (0=background, 1=flare)
-   - Return: (features_tensor, labels_tensor) - 11维特征，非原始事件
-   
-2. Batch Collation:
-   - Handle variable N_total → fixed [batch_size, sequence_length, 11] (已是特征)
-   - Corresponding labels → [batch_size, sequence_length]
-   
-3. Model Forward (简化版):
-   - Input: features [batch_size, sequence_length, 11] (直接接收11维特征)
-   - Embedding层: [batch_size, sequence_length, 11] → [batch_size, sequence_length, d_model]
-   - Mamba processing → [batch_size, sequence_length, 1] probabilities
-   
-4. Training:
-   - BCE Loss with float labels
-   - Adam optimizer update
+CORRECT Epoch-Iteration Training Pipeline:
 
-❌ 之前错误理解：在模型内部对batch进行特征提取（无物理意义）
-✅ 正确理解：在数据生成时对完整序列进行特征提取（有物理意义）
+🔄 EPOCH LEVEL (Data Generation - Once per Epoch):
+1. Load DSEC background events: 100K-1M events in 0.1-0.3s window [N1, 4]
+2. Generate DVS flare events: Variable events in 0.1-0.3s [N2, 4] 
+3. Merge & sort by timestamp → long_sequence [N_total, 4] (完整物理序列)
+4. ✅ PFD特征提取: long_sequence → long_feature_sequence [N_total, 11]
+5. Generate labels: [N_total] (0=background, 1=flare)
+
+⚡ ITERATION LEVEL (Model Training - Multiple per Epoch):
+1. Sliding window sampling: long_feature_sequence → batch [sequence_length=64, 11]
+2. Model forward: [batch_size, 64, 11] → [batch_size, 64, 1] probabilities
+3. BCE Loss + backpropagation (每个batch执行)
+4. Continue until long_feature_sequence consumed
+
+🚨 CRITICAL BUG FIXES (2025-08-02):
+- ❌ DSEC限制64事件 → ✅ 返回完整时间窗口内所有事件
+- ❌ 模型注释13维 → ✅ 修正为11维特征
+- ❌ 人工sequence_length截断 → ✅ 自然长序列处理
+- ✅ Loss反向传播：确认在iteration级别正确执行
 ```
 
 ## DVS-Voltmeter Physics Optimization (2025-07-31) 🎯
@@ -235,7 +231,11 @@ python test_features.py
 
 ## ⚠️ Known Issues & Solutions
 
-### ✅ CURRENT RESOLVED STATUS (2025-07-31 - DVS参数优化完成)
+### ✅ CURRENT RESOLVED STATUS (2025-08-02 - 核心架构Bug修复完成)
+- **🚨 DSEC数据加载Bug**: ✅ 删除sequence_length=64人工限制，现在返回完整时间窗口事件
+- **🚨 模型架构不一致**: ✅ 修正模型注释从13维到11维特征，代码逻辑一致
+- **🚨 Epoch-Iteration架构**: ✅ 修复epoch级别数据生成，支持真正的长序列处理
+- **✅ Loss反向传播**: ✅ 验证确认在iteration级别正确执行，无需修改
 - **DVS参数调优**: ✅ 已切换回DVS-Voltmeter，大幅优化参数减少事件数量
 - **事件数量优化**: ✅ 从原始200K+ events/ms降至59K events/ms (3x减少)，仍比V2CE高20x
 - **帧率优化**: ✅ 降低至100fps，6帧/30ms，显著减少计算负荷

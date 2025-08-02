@@ -15,7 +15,7 @@ class EventDenoisingMamba(nn.Module):
         self.config = config
         model_config = config['model']
         
-        # ✅ 移除：特征提取器现在在数据集阶段处理，模型直接接收13维特征
+        # ✅ 移除：特征提取器现在在数据集阶段处理，模型直接接收11维特征
         # self.feature_extractor = FeatureExtractor(config)  # 不再需要
         
         # 从特征提取器获取特征维度
@@ -39,10 +39,10 @@ class EventDenoisingMamba(nn.Module):
 
     def forward(self, features):
         """
-        ✅ 修正：直接接收13维特征，无需内部特征提取
+        ✅ 修正：直接接收11维特征，无需内部特征提取
         
         Args:
-            features (Tensor): Shape: [batch_size, sequence_length, 13] - 13维PFD特征
+            features (Tensor): Shape: [batch_size, sequence_length, 11] - 11维PFD特征
         Returns:
             probabilities (Tensor): Shape: [batch_size, sequence_length, 1] - 去噪概率
         """

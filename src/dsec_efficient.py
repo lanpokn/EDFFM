@@ -16,24 +16,23 @@ from typing import List, Tuple, Dict
 
 class DSECEventDatasetEfficient(Dataset):
     """
-    Memory-efficient DSEC Event Dataset that loads 1-second windows without loading entire files
+    Memory-efficient DSEC Event Dataset that loads time windows without loading entire files
+    🚨 CRITICAL FIX: Removed sequence_length limit to return all events in time window
     """
 
     def __init__(self, dsec_path: str, flare_path: str, time_window_us: int = 1000000,
-                 sequence_length: int = 64, camera_side: str = 'left', max_files: int = 5):
+                 camera_side: str = 'left', max_files: int = 5):
         """
         Args:
             dsec_path: Path to DSEC train folder
             flare_path: Path to flare events (currently unused)
             time_window_us: Time window in microseconds (1 second = 1000000)
-            sequence_length: Number of events to sample from the window
             camera_side: 'left' or 'right' camera
             max_files: Maximum number of files to use
         """
         self.dsec_path = dsec_path
         self.flare_path = flare_path
         self.time_window_us = time_window_us
-        self.sequence_length = sequence_length
         self.camera_side = camera_side
         self.max_files = max_files
 
@@ -149,27 +148,15 @@ class DSECEventDatasetEfficient(Dataset):
             file_meta['file_path'], window_start, window_end
         )
 
-        # Sample or pad to desired sequence length
+        # 🚨 CRITICAL FIX: Return ALL events in time window, no artificial limits
+        # This allows epoch-level processing to work with complete sequences
         if len(events) == 0:
-            # Handle empty window - create dummy events
-            events = np.zeros((self.sequence_length, 4), dtype=np.float32)
-        elif len(events) > self.sequence_length:
-            # Sample a contiguous temporal segment to maintain temporal order
-            max_start_idx = len(events) - self.sequence_length
-            start_idx = np.random.randint(0, max_start_idx + 1)
-            events = events[start_idx:start_idx + self.sequence_length]
-        else:
-            # Pad with zeros if not enough events
-            padding = np.zeros((self.sequence_length - len(events), 4), dtype=np.float32)
-            events = np.vstack([events, padding])
+            # Handle empty window - return empty array
+            events = np.empty((0, 4), dtype=np.float64)
 
-        # Convert to tensor
-        events_tensor = torch.tensor(events, dtype=torch.float32)
-        
-        # For now, assume all events are clean (no flare mixing yet)
-        labels = torch.zeros(self.sequence_length, dtype=torch.long)  # 0 = clean
-
-        return events_tensor, labels
+        # Return raw numpy array for epoch-level processing
+        # Labels will be generated at epoch level when merging with flare events
+        return events
 
 
 def create_dsec_dataloaders_efficient(config):
@@ -182,7 +169,6 @@ def create_dsec_dataloaders_efficient(config):
         dsec_path=config['data']['dsec_path'],
         flare_path=config['data']['flare_path'],
         time_window_us=config['data']['time_window_us'],
-        sequence_length=config['data']['sequence_length'],
         camera_side='left',
         max_files=3  # Start with just 3 files for safety
     )
