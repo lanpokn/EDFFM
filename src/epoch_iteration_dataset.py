@@ -14,6 +14,7 @@ import time
 import random
 import numpy as np
 import torch
+import cv2
 from torch.utils.data import Dataset, DataLoader
 from typing import Tuple, List, Dict, Optional, Union
 
@@ -152,6 +153,10 @@ class EpochIterationDataset(Dataset):
         
         # 🔍 DETAILED RANGE ANALYSIS: Sample last 1000 events for debugging
         self._debug_event_ranges(background_events, flare_events, long_sequence, labels)
+        
+        # 🎯 NEW: DVS-style debug visualization for background and merged events
+        if self.debug_mode and self.current_epoch < 3:
+            self._save_epoch_debug_visualizations(background_events, flare_events, long_sequence, labels)
         
         # Debug visualization (only for first few epochs)
         if self.event_visualizer is not None and self.current_epoch < 3:
@@ -368,6 +373,243 @@ class EpochIterationDataset(Dataset):
             )
         except Exception as e:
             print(f"    Warning: Debug visualization failed: {e}")
+
+    def _save_epoch_debug_visualizations(self, background_events: np.ndarray, flare_events: np.ndarray,
+                                       merged_events: np.ndarray, labels: np.ndarray):
+        """Save DVS-style debug visualizations for background and merged events.
+        
+        Creates similar multi-resolution temporal visualizations as DVS flare sequences,
+        but for background events and merged events using black frames as placeholders.
+        """
+        print(f"  🎯 Saving epoch debug visualizations (Epoch {self.current_epoch})...")
+        
+        # Create output directory
+        epoch_debug_dir = os.path.join(self.config.get('debug_output_dir', './output/debug'), 
+                                      f"epoch_{self.current_epoch:03d}")
+        os.makedirs(epoch_debug_dir, exist_ok=True)
+        
+        try:
+            # 1. Background events visualization
+            if len(background_events) > 0:
+                print(f"    Creating background events visualization ({len(background_events)} events)...")
+                self._create_event_sequence_visualization(
+                    background_events, 
+                    os.path.join(epoch_debug_dir, "background_events"),
+                    "Background Events",
+                    event_type="background"
+                )
+            
+            # 2. Merged events visualization  
+            if len(merged_events) > 0:
+                print(f"    Creating merged events visualization ({len(merged_events)} events)...")
+                self._create_event_sequence_visualization(
+                    merged_events,
+                    os.path.join(epoch_debug_dir, "merged_events"), 
+                    "Merged Events",
+                    event_type="merged",
+                    labels=labels
+                )
+            
+            # 3. Save epoch metadata
+            self._save_epoch_metadata(epoch_debug_dir, background_events, flare_events, merged_events, labels)
+            
+            print(f"    ✅ Epoch debug visualizations saved to: {epoch_debug_dir}")
+            
+        except Exception as e:
+            print(f"    ❌ Error saving epoch debug visualizations: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _create_event_sequence_visualization(self, events: np.ndarray, output_dir: str, 
+                                           title: str, event_type: str = "background", 
+                                           labels: Optional[np.ndarray] = None):
+        """Create DVS-style multi-resolution temporal visualizations for event sequences.
+        
+        Args:
+            events: Event array [N, 4] in format [x, y, t, p]
+            output_dir: Output directory for visualizations
+            title: Title for the visualization
+            event_type: Type of events ("background", "merged")
+            labels: Optional labels for merged events [N] (0=background, 1=flare)
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        
+        if len(events) == 0:
+            print(f"    Warning: No events to visualize for {title}")
+            return
+            
+        # Get time range and resolution
+        t_min, t_max = events[:, 2].min(), events[:, 2].max()
+        duration_ms = (t_max - t_min) / 1000.0
+        resolution = (self.config['data']['resolution_w'], self.config['data']['resolution_h'])
+        
+        # Multi-resolution strategies (same as DVS flare visualization)
+        resolution_strategies = [0.5, 1, 2, 4]
+        
+        print(f"      Duration: {duration_ms:.1f}ms, Events: {len(events)}")
+        
+        for scale in resolution_strategies:
+            scale_dir = os.path.join(output_dir, f"temporal_{scale}x")
+            os.makedirs(scale_dir, exist_ok=True)
+            
+            # Calculate temporal window size
+            base_window_ms = 10.0  # Base window: 10ms
+            window_duration_ms = base_window_ms / scale
+            window_duration_us = window_duration_ms * 1000
+            
+            # Generate frame sequence
+            num_frames = max(10, int(duration_ms / window_duration_ms))
+            frame_step = (t_max - t_min) / num_frames if num_frames > 1 else 0
+            
+            for frame_idx in range(min(num_frames, 50)):  # Limit to 50 frames
+                frame_start_time = t_min + frame_idx * frame_step
+                frame_end_time = frame_start_time + window_duration_us
+                
+                # Filter events in this time window
+                time_mask = (events[:, 2] >= frame_start_time) & (events[:, 2] < frame_end_time)
+                frame_events = events[time_mask]
+                
+                # Create black background frame (pure black as requested)
+                frame = np.zeros((resolution[1], resolution[0], 3), dtype=np.uint8)
+                
+                if len(frame_events) > 0:
+                    # Overlay events on black frame
+                    self._overlay_events_on_frame(frame, frame_events, event_type, 
+                                                labels[time_mask] if labels is not None else None)
+                
+                # Save frame
+                frame_filename = f"frame_{frame_idx:03d}_{scale}x_events.png"
+                frame_path = os.path.join(scale_dir, frame_filename)
+                cv2.imwrite(frame_path, frame)
+                
+        print(f"      ✅ Multi-resolution visualization saved to: {output_dir}")
+
+    def _overlay_events_on_frame(self, frame: np.ndarray, events: np.ndarray, 
+                               event_type: str, labels: Optional[np.ndarray] = None):
+        """Overlay events on frame with appropriate colors.
+        
+        Args:
+            frame: BGR frame to overlay events on
+            events: Events to overlay [N, 4]
+            event_type: Type of events ("background", "merged")
+            labels: Optional labels for merged events
+        """
+        if len(events) == 0:
+            return
+            
+        # Color scheme (BGR format for OpenCV)
+        colors = {
+            'background_pos': (0, 0, 255),    # Red for positive background events
+            'background_neg': (255, 0, 0),    # Blue for negative background events  
+            'flare_pos': (0, 255, 255),       # Yellow for positive flare events
+            'flare_neg': (0, 128, 255),       # Orange for negative flare events
+        }
+        
+        for i, event in enumerate(events):
+            x, y, t, p = event
+            x, y = int(x), int(y)
+            
+            # Skip events outside frame bounds
+            if x < 0 or x >= frame.shape[1] or y < 0 or y >= frame.shape[0]:
+                continue
+                
+            # Determine color based on event type and polarity
+            if event_type == "merged" and labels is not None:
+                # Use labels to distinguish background vs flare in merged events
+                if labels[i] == 0:  # Background
+                    color = colors['background_pos'] if p > 0 else colors['background_neg']
+                else:  # Flare
+                    color = colors['flare_pos'] if p > 0 else colors['flare_neg']
+            else:
+                # Background events or unlabeled
+                color = colors['background_pos'] if p > 0 else colors['background_neg']
+                
+            # Draw event as small circle
+            cv2.circle(frame, (x, y), 1, color, -1)
+
+    def _save_epoch_metadata(self, output_dir: str, background_events: np.ndarray, 
+                            flare_events: np.ndarray, merged_events: np.ndarray, 
+                            labels: np.ndarray):
+        """Save epoch metadata similar to DVS flare metadata.
+        
+        Args:
+            output_dir: Output directory
+            background_events: Background events array
+            flare_events: Flare events array
+            merged_events: Merged events array  
+            labels: Event labels
+        """
+        metadata_path = os.path.join(output_dir, "epoch_metadata.txt")
+        
+        with open(metadata_path, 'w') as f:
+            f.write("Epoch Debug Information\n")
+            f.write("======================\n\n")
+            
+            # Background events info
+            if len(background_events) > 0:
+                bg_t_min, bg_t_max = background_events[:, 2].min(), background_events[:, 2].max()
+                bg_duration_ms = (bg_t_max - bg_t_min) / 1000.0
+                bg_pos_count = np.sum(background_events[:, 3] > 0)
+                bg_neg_count = np.sum(background_events[:, 3] <= 0)
+                
+                f.write(f"Background Events:\n")
+                f.write(f"  Total events: {len(background_events)}\n")
+                f.write(f"  Time range: {bg_t_min:.0f} - {bg_t_max:.0f} μs\n")
+                f.write(f"  Duration: {bg_duration_ms:.1f} ms\n")
+                f.write(f"  Event rate: {len(background_events) / (bg_duration_ms / 1000):.1f} events/s\n")
+                f.write(f"  Polarity: {bg_pos_count} ON ({bg_pos_count/len(background_events)*100:.1f}%), ")
+                f.write(f"{bg_neg_count} OFF ({bg_neg_count/len(background_events)*100:.1f}%)\n\n")
+            
+            # Flare events info  
+            if len(flare_events) > 0:
+                # Convert flare events to project format for analysis
+                flare_formatted = self._format_flare_events(flare_events)
+                if len(flare_formatted) > 0:
+                    fl_t_min, fl_t_max = flare_formatted[:, 2].min(), flare_formatted[:, 2].max()
+                    fl_duration_ms = (fl_t_max - fl_t_min) / 1000.0
+                    fl_pos_count = np.sum(flare_formatted[:, 3] > 0)
+                    fl_neg_count = np.sum(flare_formatted[:, 3] <= 0)
+                    
+                    f.write(f"Flare Events:\n")
+                    f.write(f"  Total events: {len(flare_formatted)}\n")
+                    f.write(f"  Time range: {fl_t_min:.0f} - {fl_t_max:.0f} μs\n")
+                    f.write(f"  Duration: {fl_duration_ms:.1f} ms\n")
+                    f.write(f"  Event rate: {len(flare_formatted) / (fl_duration_ms / 1000):.1f} events/s\n")
+                    f.write(f"  Polarity: {fl_pos_count} ON ({fl_pos_count/len(flare_formatted)*100:.1f}%), ")
+                    f.write(f"{fl_neg_count} OFF ({fl_neg_count/len(flare_formatted)*100:.1f}%)\n\n")
+            
+            # Merged events info
+            if len(merged_events) > 0:
+                mg_t_min, mg_t_max = merged_events[:, 2].min(), merged_events[:, 2].max()
+                mg_duration_ms = (mg_t_max - mg_t_min) / 1000.0
+                mg_pos_count = np.sum(merged_events[:, 3] > 0)
+                mg_neg_count = np.sum(merged_events[:, 3] <= 0)
+                
+                f.write(f"Merged Events:\n")
+                f.write(f"  Total events: {len(merged_events)}\n")
+                f.write(f"  Time range: {mg_t_min:.0f} - {mg_t_max:.0f} μs\n")
+                f.write(f"  Duration: {mg_duration_ms:.1f} ms\n")
+                f.write(f"  Event rate: {len(merged_events) / (mg_duration_ms / 1000):.1f} events/s\n")
+                f.write(f"  Polarity: {mg_pos_count} ON ({mg_pos_count/len(merged_events)*100:.1f}%), ")
+                f.write(f"{mg_neg_count} OFF ({mg_neg_count/len(merged_events)*100:.1f}%)\n\n")
+                
+                # Label distribution for merged events
+                if len(labels) > 0:
+                    bg_label_count = np.sum(labels == 0)
+                    flare_label_count = np.sum(labels == 1)
+                    f.write(f"Label Distribution:\n")
+                    f.write(f"  Background: {bg_label_count} ({bg_label_count/len(labels)*100:.1f}%)\n")
+                    f.write(f"  Flare: {flare_label_count} ({flare_label_count/len(labels)*100:.1f}%)\n\n")
+            
+            # Epoch configuration
+            f.write(f"Epoch Configuration:\n")
+            f.write(f"  Epoch index: {self.current_epoch}\n")
+            f.write(f"  Resolution: {self.config['data']['resolution_w']}x{self.config['data']['resolution_h']}\n")
+            f.write(f"  Sequence length: {self.sequence_length}\n")
+            bg_range = self.config['data']['randomized_training']['background_duration_range']
+            f.write(f"  Background duration range: {bg_range[0]*1000:.0f}-{bg_range[1]*1000:.0f}ms\n")
+            flare_range = self.config['data']['flare_synthesis']['duration_range']
+            f.write(f"  Flare duration range: {flare_range[0]*1000:.0f}-{flare_range[1]*1000:.0f}ms\n")
     
     def __len__(self) -> int:
         """Return number of possible iterations in current epoch."""

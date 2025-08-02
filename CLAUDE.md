@@ -199,36 +199,57 @@ source /home/lanpoknlanpokn/miniconda3/bin/activate event_flare
 python main.py --config configs/config.yaml
 ```
 
-### Debug Mode (Event Visualization):
+### Debug Mode (Complete Event Visualization):
 ```bash
-# Run debug mode to save flare sequences and event visualizations
+# Run debug mode to save comprehensive event visualizations
 python main.py --config configs/config.yaml --debug
 ```
 
-**Debug Mode功能**:
-- **🚨 炫光序列完整保存**: 保存所有DVS仿真器输入的炫光图像帧到 `output/debug_visualizations/flare_seq_XXX/original_frames/`
-- **🔍 事件细分可视化**: 图像间隔分为5段，每段事件单独可视化到对应图像上
-  - 格式: `frame_XXX_sub_YY_events.png` (YY为0-4的细分段)
+**Debug Mode功能** (2025-08-02 完整升级):
+- **🎯 炫光序列可视化**: DVS仿真器生成的完整炫光事件序列
+  - 原始炫光图像帧保存到 `output/debug_visualizations/flare_seq_XXX/original_frames/`
+  - 多时间分辨率事件可视化: 0.5x/1x/2x/4x temporal窗口
   - 事件颜色: 负极性=蓝色，正极性=红色
-  - 时间分辨率: 原帧间隔(2.5ms@400fps)的1/5 = 0.5ms精度
-- **📊 详细元数据**: 每个序列的完整统计信息 (帧数、事件数、频率、极性分布等)
-- **⚡ 快速测试**: 限制1个epoch，8个样本，避免长时间运行
+  - 详细元数据: 帧数、事件数、频率、极性分布、运动轨迹等
 
-**超参数调节**:
-```python
-# 在main.py中可调整细分数量 (默认5)
-config['debug_event_subdivisions'] = 5  # 1-10均可，影响时间分辨率
-```
+- **🔍 背景事件可视化**: DSEC数据集的大规模背景事件序列  
+  - 纯黑背景上的事件分布可视化
+  - 多时间分辨率窗口分析: 0.5x/1x/2x/4x
+  - 颜色编码: 红色(正极性)，蓝色(负极性)
+  - 事件统计: 300万+事件，~150ms时长
 
-**输出结构**:
+- **⚡ 合并事件可视化**: 背景+炫光的完整训练序列
+  - 智能颜色编码区分事件来源
+  - 背景事件: 红色(+)/蓝色(-)，炫光事件: 黄色(+)/橙色(-)
+  - 标签分布统计和时间对齐验证
+
+**输出结构** (完整三层可视化):
 ```
 output/debug_visualizations/
-├── flare_seq_000/
-│   ├── original_frames/          # 原始炫光图像序列
-│   ├── event_visualizations/     # 事件可视化 (5x数量)
-│   └── metadata.txt             # 序列统计信息
-├── flare_seq_001/
-└── ...
+├── flare_seq_000/                    # DVS炫光可视化
+│   ├── original_frames/              # 炫光图像序列  
+│   ├── event_visualizations/         # 多分辨率事件叠加
+│   └── metadata.txt                  # 炫光统计信息
+├── epoch_000/                        # Epoch级事件可视化
+│   ├── background_events/            # 背景事件(黑底)
+│   │   ├── temporal_0.5x/           # 低频采样可视化
+│   │   ├── temporal_1x/             # 标准采样
+│   │   ├── temporal_2x/             # 高频采样  
+│   │   └── temporal_4x/             # 超高频采样
+│   ├── merged_events/               # 合并事件(智能着色)
+│   │   └── [same structure]
+│   └── epoch_metadata.txt          # 完整Epoch统计
+└── epoch_iteration_analysis/        # 传统分析可视化
+```
+
+**Debug配置优化** (快速测试):
+```python
+# 在main.py --debug模式下自动设置
+config['debug_mode'] = True
+config['training']['max_epochs'] = 1              # 限制epoch数
+config['data']['max_samples_debug'] = 4           # 限制样本数
+config['data']['randomized_training']['background_duration_range'] = [0.05, 0.1]  # 缩短背景
+config['data']['flare_synthesis']['duration_range'] = [0.03, 0.08]  # 缩短炫光
 ```
 
 ### Feature Testing:
