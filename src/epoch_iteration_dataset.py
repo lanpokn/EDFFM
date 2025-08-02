@@ -105,6 +105,7 @@ class EpochIterationDataset(Dataset):
         4. Extract features → long_feature_sequence
         """
         print(f"\n🔄 Generating new epoch data (Epoch {self.current_epoch + 1})")
+        print(f"🔍 DEBUG: new_epoch() started, debug_mode={self.debug_mode}")
         epoch_start_time = time.time()
         
         self.current_epoch += 1
@@ -115,14 +116,30 @@ class EpochIterationDataset(Dataset):
         
         # Step 2: Generate flare events  
         print("  Step 2: Generating flare events...")
+        print(f"🔍 DEBUG: About to call _generate_flare_events()")
         flare_events = self._generate_flare_events()
+        print(f"🔍 DEBUG: _generate_flare_events() completed, got {len(flare_events)} events")
         
         # Step 3: Merge and sort events
         print("  Step 3: Merging and sorting events...")
+        print(f"🔍 DEBUG: About to merge {len(background_events)} bg + {len(flare_events)} flare events")
         long_sequence, labels = self._merge_and_sort_events(background_events, flare_events)
+        print(f"🔍 DEBUG: Merge completed, got {len(long_sequence)} total events")
+        
+        # 🚨 IMMEDIATE DEBUG VISUALIZATION: Call right after merge, before feature extraction
+        if self.debug_mode and self.current_epoch < 3:
+            print(f"🔍 DEBUG: IMMEDIATE call to unified debug visualization after merge")
+            try:
+                self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
+                print(f"🔍 DEBUG: IMMEDIATE unified visualization completed successfully!")
+            except Exception as e:
+                print(f"🔍 DEBUG: IMMEDIATE visualization failed: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Step 4: CRITICAL - Extract features on complete sequence
         print("  Step 4: Extracting PFD features on complete sequence...")
+        print(f"🔍 DEBUG: About to extract features from {len(long_sequence)} events")
         feature_start_time = time.time()
         
         if len(long_sequence) == 0:
@@ -132,12 +149,15 @@ class EpochIterationDataset(Dataset):
             self.num_iterations = 1
         else:
             # ✅ CORE REQUIREMENT: Extract features on complete sequence FIRST
+            print(f"🔍 DEBUG: Calling feature_extractor.process_sequence()...")
             self.long_feature_sequence = self.feature_extractor.process_sequence(long_sequence)  # [N, 4] → [N, 11]
+            print(f"🔍 DEBUG: Feature extraction completed, got {len(self.long_feature_sequence)} feature vectors")
             self.long_labels = labels
             
             # Calculate number of possible iterations (sliding window)
             total_events = len(self.long_feature_sequence)
             self.num_iterations = max(1, total_events - self.sequence_length + 1)
+            print(f"🔍 DEBUG: Calculated {self.num_iterations} iterations for sliding window")
         
         feature_time = time.time() - feature_start_time
         epoch_time = time.time() - epoch_start_time
@@ -154,6 +174,11 @@ class EpochIterationDataset(Dataset):
         # 🔍 DETAILED RANGE ANALYSIS: Sample last 1000 events for debugging
         self._debug_event_ranges(background_events, flare_events, long_sequence, labels)
         
+        print(f"🔍 DEBUG: Reached visualization section")
+        print(f"🔍 DEBUG: event_visualizer = {self.event_visualizer is not None}")
+        print(f"🔍 DEBUG: current_epoch = {self.current_epoch}")
+        print(f"🔍 DEBUG: debug_mode = {self.debug_mode}")
+        
         # 🎯 RESTORE ORIGINAL DEBUG VISUALIZATION: 恢复原本的可视化系统
         if self.event_visualizer is not None and self.current_epoch < 3:
             print(f"  🎯 Running original debug visualization system...")
@@ -162,10 +187,16 @@ class EpochIterationDataset(Dataset):
         # 🎯 UNIFIED DEBUG VISUALIZATION: 统一可视化系统 (补充)
         print(f"  🔍 Debug state: debug_mode={self.debug_mode}, current_epoch={self.current_epoch}")
         if self.debug_mode and self.current_epoch < 3:
-            print(f"  📊 Running unified debug visualization system...")
+            print(f"  📊 CALLING unified debug visualization system...")
+            print(f"  📊 Background events: {len(background_events)}")
+            print(f"  📊 Flare events: {len(flare_events)}")  
+            print(f"  📊 Merged events: {len(long_sequence)}")
             self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
+            print(f"  ✅ COMPLETED unified debug visualization system")
         else:
             print(f"  ⏭️ Skipping unified debug (debug_mode={self.debug_mode}, epoch={self.current_epoch})")
+        
+        print(f"🔍 DEBUG: new_epoch() completed successfully")
     
     def _generate_background_events(self) -> np.ndarray:
         """Generate random background events using config duration range."""
@@ -705,7 +736,9 @@ class EpochIterationDataLoader:
         self.num_workers = num_workers
         
         # Generate initial epoch
+        print(f"🔍 DEBUG: DataLoader calling dataset.new_epoch()...")
         self.dataset.new_epoch()
+        print(f"🔍 DEBUG: DataLoader new_epoch() completed")
         
         # Calculate batches per epoch
         self.batches_per_epoch = max(1, len(self.dataset) // batch_size)

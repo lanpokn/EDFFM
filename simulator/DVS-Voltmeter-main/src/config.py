@@ -32,8 +32,8 @@ elif cfg.SENSOR.CAMERA_TYPE == 'DVS240':
 
 # Directories
 __C.DIR                                 = edict()
-__C.DIR.IN_PATH = '/tmp/flare_events_ccqrbo1z/'
-__C.DIR.OUT_PATH = '/tmp/flare_events_ccqrbo1z/'
+__C.DIR.IN_PATH = '/tmp/flare_events_d8qyz2pu/'
+__C.DIR.OUT_PATH = '/tmp/flare_events_d8qyz2pu/'
 
 
 # Visualize

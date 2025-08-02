@@ -30,7 +30,9 @@ def main(config):
     
     if use_epoch_iteration:
         print("🔄 Using Epoch-Iteration architecture (先完整序列特征提取，再滑动窗口)")
+        print("🔍 DEBUG: Creating epoch iteration dataloaders...")
         train_loader, val_loader, test_loader = create_epoch_iteration_dataloaders(config)
+        print("🔍 DEBUG: Dataloaders created successfully")
     else:
         print("📊 Using legacy mixed flare dataloaders")
         train_loader, val_loader, test_loader = create_mixed_flare_dataloaders(config)
@@ -43,9 +45,13 @@ def main(config):
 
     # 3. 根据模式选择执行
     if config['run']['mode'] == 'train':
+        print("🔍 DEBUG: Starting training mode...")
         trainer = Trainer(model, train_loader, val_loader, config, device)
+        print("🔍 DEBUG: Trainer created, calling trainer.train()...")
         trainer.train()
+        print("🔍 DEBUG: Training completed")
     elif config['run']['mode'] == 'evaluate':
+        print("🔍 DEBUG: Starting evaluation mode...")
         evaluator = Evaluator(model, test_loader, config, device)
         model.load_state_dict(torch.load(config['evaluation']['checkpoint_path']))
         print(f"Loaded checkpoint from: {config['evaluation']['checkpoint_path']}")

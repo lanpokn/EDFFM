@@ -59,9 +59,11 @@ class Trainer:
         return total_loss / len(self.val_loader)
 
     def train(self):
+        print("🔍 DEBUG: Trainer.train() method started")
         best_val_loss = float('inf')
         
         for epoch in range(self.epochs):
+            print(f"🔍 DEBUG: Starting epoch {epoch + 1}/{self.epochs}")
             train_loss = self.train_one_epoch()
             val_loss = self.validate_one_epoch()
             

@@ -17,13 +17,14 @@ EventMamba-FX is a Feature-Augmented Mamba model for real-time event denoising a
 - **max_samples_debug=4**: Use for quick validation (debug模式限制样本数)
 - **Memory monitoring**: Current safe range 400-800MB, warning at 1GB+
 
-## Current System Status ✅ (Updated 2025-07-30)
+## Current System Status ✅ (Updated 2025-08-02)
 - **Model Architecture**: 271,489 parameters, 11D PFD features, 3x3 neighborhoods
 - **Transform Pipeline**: Split positioning + final crop, natural flare boundaries
 - **Movement Simulation**: 0-60 pixel random movement with realistic automotive speeds
 - **Flicker Generation**: Linear triangle wave, baseline intensity constraints
 - **Debug System**: Multi-resolution event visualization (0.5x/1x/2x/4x) + movement trajectories
 - **Memory Efficient**: DSEC dataset integration with <100MB usage, 1440x1440→640x480 natural cropping
+- **🚨 DEBUG TIMING**: main.py debug mode requires **300+ seconds** for complete DVS simulation and epoch generation
 
 ## Core Data Flow (FIXED & VERIFIED 2025-08-02) ✅
 ```
@@ -206,22 +207,22 @@ python main.py --config configs/config.yaml --debug
 ```
 
 **Debug Mode功能** (2025-08-02 完整升级):
+- **🚨 TIMING REQUIREMENT**: main.py debug模式需要**300+秒**完成DVS仿真和epoch生成
 - **🎯 炫光序列可视化**: DVS仿真器生成的完整炫光事件序列
   - 原始炫光图像帧保存到 `output/debug_visualizations/flare_seq_XXX/original_frames/`
   - 多时间分辨率事件可视化: 0.5x/1x/2x/4x temporal窗口
+  - **真实炫光结构**: 显示放射状光线、几何结构(非噪声)
   - 事件颜色: 负极性=蓝色，正极性=红色
   - 详细元数据: 帧数、事件数、频率、极性分布、运动轨迹等
 
-- **🔍 背景事件可视化**: DSEC数据集的大规模背景事件序列  
-  - 纯黑背景上的事件分布可视化
-  - 多时间分辨率窗口分析: 0.5x/1x/2x/4x
-  - 颜色编码: 红色(正极性)，蓝色(负极性)
-  - 事件统计: 300万+事件，~150ms时长
-
-- **⚡ 合并事件可视化**: 背景+炫光的完整训练序列
-  - 智能颜色编码区分事件来源
-  - 背景事件: 红色(+)/蓝色(-)，炫光事件: 黄色(+)/橙色(-)
-  - 标签分布统计和时间对齐验证
+- **🔍 统一事件可视化系统** (2025-08-02 VERIFIED): 
+  - **理想输出结构**: `output/debug_epoch_XXX/` (clean, organized)
+  - **background_events/**: DSEC背景事件 (红/蓝)
+  - **flare_events/**: DVS炫光事件 (黄/橙)  
+  - **merged_events/**: 合并训练序列 (智能颜色区分)
+  - **epoch_metadata.txt**: 完整统计信息
+  - **多分辨率**: 每种事件类型都有 0.5x/1x/2x/4x temporal窗口
+  - **⚠️ 注意**: 需完整epoch生成才触发，DVS仿真时间较长
 
 **输出结构** (完整三层可视化):
 ```
