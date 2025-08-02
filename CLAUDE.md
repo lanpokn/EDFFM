@@ -17,40 +17,51 @@ EventMamba-FX is a Feature-Augmented Mamba model for real-time event denoising a
 - **max_samples_debug=4**: Use for quick validation (debug模式限制样本数)
 - **Memory monitoring**: Current safe range 400-800MB, warning at 1GB+
 
-## Current System Status ✅ (Updated 2025-07-30)
+## Current System Status ✅ (Updated 2025-08-02)
+- **Architecture**: Epoch-Iteration分离架构，先完整序列特征提取，再滑动窗口
 - **Model Architecture**: 271,489 parameters, 11D PFD features, 3x3 neighborhoods
-- **Transform Pipeline**: Split positioning + final crop, natural flare boundaries
-- **Movement Simulation**: 0-60 pixel random movement with realistic automotive speeds
-- **Flicker Generation**: Linear triangle wave, baseline intensity constraints
-- **Debug System**: Multi-resolution event visualization (0.5x/1x/2x/4x) + movement trajectories
-- **Memory Efficient**: DSEC dataset integration with <100MB usage, 1440x1440→640x480 natural cropping
+- **Data Pipeline**: 统一使用新架构，legacy代码已删除
+- **Flicker Generation**: 优化帧数 (max_fps: 3000→1500, min_samples_per_cycle: 24→12)
+- **Debug System**: Multi-resolution event visualization + 完整epoch分析
+- **Memory Safety**: batch_size=2, sequence_length=64, max_samples_debug=4
+- **Format Handling**: DVS [t,x,y,p] → Project [x,y,t,p] 自动转换
 
-## Core Data Flow (Corrected & Verified) ✅
+## 🚨 NEW: Epoch-Iteration Architecture (完全重构) ✅
+**最新实现 (2025-08-02)**: 完全符合"先完整序列特征提取，再滑动窗口"的要求
+
+### 核心架构对比
 ```
-CORRECT Training Data Pipeline:
-1. Dataset.__getitem__() (Outer Loop) - 关键修正：
-   - Load DSEC background events [N1, 4] (x,y,t,p)
-   - Generate flare events via DVS simulator [N2, 4]
-   - Merge → complete_events [N_total, 4] (完整时序事件序列)
-   - ✅ 11D PFD特征提取 complete_events → features [N_total, 11] (在这一步！)
-   - Generate labels [N_total] (0=background, 1=flare)
-   - Return: (features_tensor, labels_tensor) - 11维特征，非原始事件
-   
-2. Batch Collation:
-   - Handle variable N_total → fixed [batch_size, sequence_length, 11] (已是特征)
-   - Corresponding labels → [batch_size, sequence_length]
-   
-3. Model Forward (简化版):
-   - Input: features [batch_size, sequence_length, 11] (直接接收11维特征)
-   - Embedding层: [batch_size, sequence_length, 11] → [batch_size, sequence_length, d_model]
-   - Mamba processing → [batch_size, sequence_length, 1] probabilities
-   
-4. Training:
-   - BCE Loss with float labels
-   - Adam optimizer update
+❌ LEGACY (已淘汰): 每次__getitem__重新生成数据
+✅ NEW: Epoch-Iteration分离架构
 
-❌ 之前错误理解：在模型内部对batch进行特征提取（无物理意义）
-✅ 正确理解：在数据生成时对完整序列进行特征提取（有物理意义）
+EPOCH LEVEL (数据生成):
+1. Generate Background Events (0.1-0.3s): Load DSEC random slice [N1, 4]
+2. Generate Flare Events (0.1-0.3s): DVS simulation → [N2, 4] 
+3. Merge & Sort: complete_events [N_total, 4] (时序完整)
+4. ✅ CRITICAL: Feature Extraction ONCE on complete sequence
+   - complete_events [N_total, 4] → long_feature_sequence [N_total, 11]
+   - Generate labels [N_total] (0=background, 1=flare)
+   - Calculate num_iterations = N_total - sequence_length + 1
+
+ITERATION LEVEL (模型训练):
+1. Sliding Window Sampling: features[start:start+64, :] from long_feature_sequence
+2. Return: (feature_window [64, 11], label_window [64])
+3. Batch Collation: [batch_size, sequence_length, 11]
+4. Model Forward: Direct 11D feature processing
+```
+
+### 关键文件结构
+- **核心实现**: `src/epoch_iteration_dataset.py` (新建)
+- **数据集类**: `EpochIterationDataset` + `EpochIterationDataLoader`
+- **配置控制**: `data_pipeline.use_epoch_iteration: true`
+- **主程序**: `main.py` 自动选择架构
+- **Legacy保留**: `src/mixed_flare_datasets.py` (向后兼容)
+
+### DVS格式转换 (已验证正确)
+```
+DVS输出: [t, x, y, p] → 项目格式: [x, y, t, p]
+极性转换: DVS (1/0) → DSEC (1/-1)
+实现位置: _format_flare_events() 方法
 ```
 
 ## DVS-Voltmeter Physics Optimization (2025-07-31) 🎯
@@ -189,17 +200,25 @@ data:
 
 **PFD特征占比**: 6/11 (54.5%) 为纯PFD特征，**删除了累积计数特征以避免训练→测试泛化问题**
 
-## Running the Project
-### Training:
+## Running the Project 🚀 (Updated 2025-08-02)
+
+### 🔍 分析模式 (推荐首次运行):
 ```bash
 source /home/lanpoknlanpokn/miniconda3/bin/activate event_flare
+python main.py --config configs/config.yaml --debug
+# 配置: mode: analyze - 详细分析epoch数据流，不进行训练
+```
+
+### 🎯 训练模式:
+```bash
+# 修改configs/config.yaml: mode: train
 python main.py --config configs/config.yaml
 ```
 
-### Debug Mode (Event Visualization):
+### 📊 评估模式:
 ```bash
-# Run debug mode to save flare sequences and event visualizations
-python main.py --config configs/config.yaml --debug
+# 修改configs/config.yaml: mode: evaluate
+python main.py --config configs/config.yaml
 ```
 
 **Debug Mode功能**:
@@ -235,14 +254,14 @@ python test_features.py
 
 ## ⚠️ Known Issues & Solutions
 
-### ✅ CURRENT RESOLVED STATUS (2025-07-31 - DVS参数优化完成)
-- **DVS参数调优**: ✅ 已切换回DVS-Voltmeter，大幅优化参数减少事件数量
-- **事件数量优化**: ✅ 从原始200K+ events/ms降至59K events/ms (3x减少)，仍比V2CE高20x
-- **帧率优化**: ✅ 降低至100fps，6帧/30ms，显著减少计算负荷
-- **参数配置**: ✅ K=[50.0,80,0.01,5e-6,1e-7,0.001] (10x+阈值提升)
-- **Multi-Resolution Debug**: ✅ DVS多分辨率可视化(0.5x/1x/2x/4x)正常工作
-- **Transform Pipeline**: ✅ Split positioning + natural cropping eliminates black borders
-- **Memory Safety**: ✅ Verified stable with batch_size=2, max_samples_debug=4
+### ✅ CURRENT RESOLVED STATUS (2025-08-02 - 完全重构完成)
+- **Epoch-Iteration架构**: ✅ 完全实现"先完整序列特征提取，再滑动窗口"
+- **Legacy代码清理**: ✅ 删除mixed_flare_datasets，统一使用新架构
+- **数据流修正**: ✅ 特征提取在epoch级别进行一次，iteration级别滑动窗口采样
+- **帧数优化**: ✅ 减少flare仿真帧数 (max_fps: 3000→1500, samples: 24→12)
+- **格式转换**: ✅ DVS [t,x,y,p] → Project [x,y,t,p] 自动处理
+- **内存安全**: ✅ batch_size=2, sequence_length=64 严格限制
+- **详细分析**: ✅ main.py集成epoch数据流分析功能
 
 ### 🎯 ENHANCED SYSTEM STATUS - FULLY FUNCTIONAL
 - **✅ NATURAL BOUNDARIES**: No artificial black frames, natural flare edge transitions

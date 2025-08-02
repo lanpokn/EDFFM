@@ -4,14 +4,11 @@
 
 # --- 运行设置 (Run Settings) ---
 run:
-  mode: train         # 运行模式: 'train' or 'evaluate'
+  mode: analyze       # 运行模式: 'analyze', 'train' or 'evaluate'  
   experiment_name: event_denoising_mamba_v1
 
 # --- 数据管线设置 (Data Pipeline Settings) ---
-data_pipeline:
-  use_epoch_iteration: true   # 🚨 NEW: Enable Epoch-Iteration architecture
-                             # true: 先完整序列特征提取，再滑动窗口 (正确)
-                             # false: 每次__getitem__重新生成数据 (legacy)
+# 🔄 统一使用Epoch-Iteration架构 (先完整序列特征提取，再滑动窗口)
   
 # --- 数据集设置 (Data Settings) ---
 data:
@@ -144,9 +141,9 @@ data:
     # 随机变化范围 (±Hz, 模拟电网不稳定、调光器、老化等因素)
     frequency_variation: 5.0             # ±5Hz随机变化
     
-    # 动态帧率计算 (提高帧密度确保充分采样)
-    min_samples_per_cycle: 24            # 每个闪烁周期最少采样点数 (翻倍提高密度)
-    max_fps: 3000                        # 最大帧率限制 (大幅提高支持高密度采样)
+    # 动态帧率计算 (减少帧数以避免卡顿，但保持时间长度)
+    min_samples_per_cycle: 12            # 每个闪烁周期最少采样点数 (减半，避免过密)
+    max_fps: 1500                        # 最大帧率限制 (减半，从3000→1500)
     
     flicker_curves: ["sine", "square", "triangle", "exponential"]  # 闪烁曲线类型
     position_random: true                # 随机flare位置
