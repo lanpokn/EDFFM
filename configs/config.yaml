@@ -6,6 +6,12 @@
 run:
   mode: train         # 运行模式: 'train' or 'evaluate'
   experiment_name: event_denoising_mamba_v1
+
+# --- 数据管线设置 (Data Pipeline Settings) ---
+data_pipeline:
+  use_epoch_iteration: true   # 🚨 NEW: Enable Epoch-Iteration architecture
+                             # true: 先完整序列特征提取，再滑动窗口 (正确)
+                             # false: 每次__getitem__重新生成数据 (legacy)
   
 # --- 数据集设置 (Data Settings) ---
 data:

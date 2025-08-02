@@ -4,6 +4,7 @@ import torch
 import os
 
 from src.mixed_flare_dataloaders import create_mixed_flare_dataloaders
+from src.epoch_iteration_dataset import create_epoch_iteration_dataloaders
 from src.model import EventDenoisingMamba # 确认导入的是修正后的模型
 from src.trainer import Trainer
 from src.evaluate import Evaluator
@@ -23,8 +24,16 @@ def main(config):
         print(f"🚨 DEBUG MODE: Saving visualizations to {output_dir}")
         print(f"🚨 DEBUG MODE: Will run limited iterations for debugging")
 
-    # 1. 创建数据集加载器 (混合flare数据)
-    train_loader, val_loader, test_loader = create_mixed_flare_dataloaders(config)
+    # 1. 创建数据集加载器 
+    # Check if using new Epoch-Iteration architecture
+    use_epoch_iteration = config.get('data_pipeline', {}).get('use_epoch_iteration', False)
+    
+    if use_epoch_iteration:
+        print("🔄 Using Epoch-Iteration architecture (先完整序列特征提取，再滑动窗口)")
+        train_loader, val_loader, test_loader = create_epoch_iteration_dataloaders(config)
+    else:
+        print("📊 Using legacy mixed flare dataloaders")
+        train_loader, val_loader, test_loader = create_mixed_flare_dataloaders(config)
 
     # 2. 初始化模型 (关键修正)
     # 现在我们将特征提取器和Mamba模型的配置分开传递
