@@ -154,13 +154,18 @@ class EpochIterationDataset(Dataset):
         # 🔍 DETAILED RANGE ANALYSIS: Sample last 1000 events for debugging
         self._debug_event_ranges(background_events, flare_events, long_sequence, labels)
         
-        # 🎯 NEW: DVS-style debug visualization for background and merged events
-        if self.debug_mode and self.current_epoch < 3:
-            self._save_epoch_debug_visualizations(background_events, flare_events, long_sequence, labels)
-        
-        # Debug visualization (only for first few epochs)
+        # 🎯 RESTORE ORIGINAL DEBUG VISUALIZATION: 恢复原本的可视化系统
         if self.event_visualizer is not None and self.current_epoch < 3:
+            print(f"  🎯 Running original debug visualization system...")
             self._debug_visualize_epoch(background_events, flare_events, long_sequence, labels)
+        
+        # 🎯 UNIFIED DEBUG VISUALIZATION: 统一可视化系统 (补充)
+        print(f"  🔍 Debug state: debug_mode={self.debug_mode}, current_epoch={self.current_epoch}")
+        if self.debug_mode and self.current_epoch < 3:
+            print(f"  📊 Running unified debug visualization system...")
+            self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
+        else:
+            print(f"  ⏭️ Skipping unified debug (debug_mode={self.debug_mode}, epoch={self.current_epoch})")
     
     def _generate_background_events(self) -> np.ndarray:
         """Generate random background events using config duration range."""
@@ -374,49 +379,60 @@ class EpochIterationDataset(Dataset):
         except Exception as e:
             print(f"    Warning: Debug visualization failed: {e}")
 
-    def _save_epoch_debug_visualizations(self, background_events: np.ndarray, flare_events: np.ndarray,
-                                       merged_events: np.ndarray, labels: np.ndarray):
-        """Save DVS-style debug visualizations for background and merged events.
+    def _save_unified_debug_visualizations(self, background_events: np.ndarray, flare_events: np.ndarray,
+                                         merged_events: np.ndarray, labels: np.ndarray):
+        """Save unified debug visualizations with clear structure.
         
-        Creates similar multi-resolution temporal visualizations as DVS flare sequences,
-        but for background events and merged events using black frames as placeholders.
+        Creates clean output structure:
+        - background_events/: DSEC背景事件可视化
+        - flare_events/: DVS炫光事件可视化  
+        - merged_events/: 合成事件可视化
         """
-        print(f"  🎯 Saving epoch debug visualizations (Epoch {self.current_epoch})...")
+        print(f"  🎯 Saving unified debug visualizations (Epoch {self.current_epoch})...")
         
-        # Create output directory
-        epoch_debug_dir = os.path.join(self.config.get('debug_output_dir', './output/debug'), 
-                                      f"epoch_{self.current_epoch:03d}")
+        # Create clean output directory
+        epoch_debug_dir = os.path.join('./output', f"debug_epoch_{self.current_epoch:03d}")
         os.makedirs(epoch_debug_dir, exist_ok=True)
         
         try:
             # 1. Background events visualization
             if len(background_events) > 0:
-                print(f"    Creating background events visualization ({len(background_events)} events)...")
+                print(f"    📊 Background events: {len(background_events)} events")
                 self._create_event_sequence_visualization(
                     background_events, 
                     os.path.join(epoch_debug_dir, "background_events"),
-                    "Background Events",
+                    "Background Events (DSEC)",
                     event_type="background"
                 )
             
-            # 2. Merged events visualization  
+            # 2. Flare events visualization (单独显示炫光事件)
+            if len(flare_events) > 0:
+                print(f"    ✨ Flare events: {len(flare_events)} events")
+                self._create_event_sequence_visualization(
+                    flare_events,
+                    os.path.join(epoch_debug_dir, "flare_events"), 
+                    "Flare Events (DVS)",
+                    event_type="flare"
+                )
+            
+            # 3. Merged events visualization  
             if len(merged_events) > 0:
-                print(f"    Creating merged events visualization ({len(merged_events)} events)...")
+                print(f"    🔗 Merged events: {len(merged_events)} events")
                 self._create_event_sequence_visualization(
                     merged_events,
                     os.path.join(epoch_debug_dir, "merged_events"), 
-                    "Merged Events",
+                    "Merged Events (Background + Flare)",
                     event_type="merged",
                     labels=labels
                 )
             
-            # 3. Save epoch metadata
+            # 4. Save epoch metadata
             self._save_epoch_metadata(epoch_debug_dir, background_events, flare_events, merged_events, labels)
             
-            print(f"    ✅ Epoch debug visualizations saved to: {epoch_debug_dir}")
+            print(f"    ✅ Unified debug visualizations saved to: {epoch_debug_dir}")
             
         except Exception as e:
-            print(f"    ❌ Error saving epoch debug visualizations: {e}")
+            print(f"    ❌ Error saving unified debug visualizations: {e}")
             import traceback
             traceback.print_exc()
 
@@ -520,8 +536,11 @@ class EpochIterationDataset(Dataset):
                     color = colors['background_pos'] if p > 0 else colors['background_neg']
                 else:  # Flare
                     color = colors['flare_pos'] if p > 0 else colors['flare_neg']
+            elif event_type == "flare":
+                # Pure flare events (yellow/orange)
+                color = colors['flare_pos'] if p > 0 else colors['flare_neg']
             else:
-                # Background events or unlabeled
+                # Background events (red/blue)
                 color = colors['background_pos'] if p > 0 else colors['background_neg']
                 
             # Draw event as small circle
