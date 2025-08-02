@@ -43,9 +43,10 @@ CORRECT Epoch-Iteration Training Pipeline:
 4. Continue until long_feature_sequence consumed
 
 🚨 CRITICAL BUG FIXES (2025-08-02):
-- ❌ DSEC限制64事件 → ✅ 返回完整时间窗口内所有事件
+- ❌ DSEC限制64事件 → ✅ 返回完整时间窗口内所有事件 (测试验证: 386万事件)
 - ❌ 模型注释13维 → ✅ 修正为11维特征
 - ❌ 人工sequence_length截断 → ✅ 自然长序列处理
+- ❌ Config参数冲突 → ✅ 删除duration冗余参数，flare_synthesis统一控制
 - ✅ Loss反向传播：确认在iteration级别正确执行
 ```
 
@@ -113,11 +114,11 @@ FIXED (平衡优化参数):
 - ✅ **Total: 5962 flare images** (6x more than previously reported)
 - ✅ Random selection from both directories during training
 
-### Configuration (configs/config.yaml)
+### Configuration (configs/config.yaml) - FIXED 2025-08-02
 ```yaml
 data:
   # DSEC dataset (correct path structure)
-  dsec_path: "/path/to/dsec/events/left/events.h5"
+  dsec_path: "/path/to/dsec/train"  # Base DSEC directory
   resolution_w: 640  # DSEC standard
   resolution_h: 480  # DSEC standard
   
@@ -126,8 +127,14 @@ data:
   # Will look in: Flare7K/Scattering_Flare/ and Flare-R/Compound_Flare/
   
   # Training parameters
-  sequence_length: 64
-  time_window_us: 1000000  # 1 second windows
+  sequence_length: 64  # Sliding window size for iterations
+  
+  # 🚨 UNIFIED CONTROL: Duration parameters (no conflicts)
+  randomized_training:
+    background_duration_range: [0.1, 0.3]  # 100-300ms background windows
+    
+  flare_synthesis:
+    duration_range: [0.05, 0.15]  # 50-150ms flare sequences (SINGLE CONTROL)
 ```
 
 ## Key Performance Optimizations ⚡

@@ -463,7 +463,12 @@ class V2CEFlareEventGenerator:
             if metadata and 'fps' in metadata:
                 fps = metadata['fps']
             else:
-                duration_sec = self.config['data']['flare_synthesis']['duration_sec']
+                # 🚨 FIX: Use duration_range instead of deprecated duration_sec
+                duration_range = self.config['data']['flare_synthesis'].get('duration_range', [0.05, 0.15])
+                if isinstance(duration_range, list) and len(duration_range) == 2:
+                    duration_sec = (duration_range[0] + duration_range[1]) / 2  # Use average
+                else:
+                    duration_sec = 0.1  # Fallback
                 fps = len(video_frames) / duration_sec
             
             frame_duration_us = int(1e6 / fps)
@@ -1297,8 +1302,12 @@ class DVSFlareEventGenerator:
         if metadata and 'fps' in metadata:
             fps = metadata['fps']
         else:
-            # Fallback: estimate from frame count and duration
-            duration_sec = self.config['data']['flare_synthesis']['duration_sec']
+            # 🚨 FIX: Use duration_range instead of deprecated duration_sec
+            duration_range = self.config['data']['flare_synthesis'].get('duration_range', [0.05, 0.15])
+            if isinstance(duration_range, list) and len(duration_range) == 2:
+                duration_sec = (duration_range[0] + duration_range[1]) / 2  # Use average
+            else:
+                duration_sec = 0.1  # Fallback
             fps = len(video_frames) / duration_sec
         
         frame_duration_us = int(1e6 / fps)  # microseconds per frame
@@ -1484,7 +1493,12 @@ class DVSFlareEventGenerator:
             if metadata and 'fps' in metadata:
                 fps = metadata['fps']
             else:
-                duration_sec = self.config['data']['flare_synthesis']['duration_sec']
+                # 🚨 FIX: Use duration_range instead of deprecated duration_sec
+                duration_range = self.config['data']['flare_synthesis'].get('duration_range', [0.05, 0.15])
+                if isinstance(duration_range, list) and len(duration_range) == 2:
+                    duration_sec = (duration_range[0] + duration_range[1]) / 2  # Use average
+                else:
+                    duration_sec = 0.1  # Fallback
                 fps = len(video_frames) / duration_sec
             
             frame_duration_us = int(1e6 / fps)

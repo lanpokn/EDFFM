@@ -383,7 +383,19 @@ class FlareFlickeringSynthesizer:
         if curve_type is None:
             curve_type = random.choice(self.synthesis_config['flicker_curves'])
         
-        duration = self.synthesis_config['duration_sec']
+        # 🚨 FIX: Get duration from duration_range instead of deprecated duration_sec
+        duration_range = self.synthesis_config.get('duration_range', [0.05, 0.15])
+        if isinstance(duration_range, list) and len(duration_range) == 2:
+            # If range has been set to fixed value by epoch_iteration_dataset, use it
+            if duration_range[0] == duration_range[1]:
+                duration = duration_range[0]
+            else:
+                # Random duration from range
+                duration = random.uniform(duration_range[0], duration_range[1])
+        else:
+            # Fallback to default
+            duration = 0.1
+            
         fps = self.calculate_dynamic_fps(frequency)  # Dynamic FPS based on frequency
         
         # 获取炫光图像的实际尺寸 (变换后的大图)

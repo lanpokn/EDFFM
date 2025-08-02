@@ -64,8 +64,16 @@ class EpochIterationDataset(Dataset):
         
         # Training parameters
         self.sequence_length = config['data']['sequence_length']  # e.g., 64
-        self.min_duration_ms = 100  # 0.1s minimum duration
-        self.max_duration_ms = 300  # 0.3s maximum duration
+        
+        # Background duration from config
+        bg_range = config['data']['randomized_training']['background_duration_range']
+        self.bg_min_duration_ms = bg_range[0] * 1000  # Convert to ms
+        self.bg_max_duration_ms = bg_range[1] * 1000  # Convert to ms
+        
+        # Flare duration from flare_synthesis (no longer from randomized_training)
+        flare_range = config['data']['flare_synthesis']['duration_range']
+        self.flare_min_duration_ms = flare_range[0] * 1000  # Convert to ms
+        self.flare_max_duration_ms = flare_range[1] * 1000  # Convert to ms
         
         # Debug mode
         self.debug_mode = config.get('debug_mode', False)
@@ -133,22 +141,26 @@ class EpochIterationDataset(Dataset):
         feature_time = time.time() - feature_start_time
         epoch_time = time.time() - epoch_start_time
         
+        # 🔍 ENHANCED DEBUG OUTPUT: Event counts and ranges analysis
         print(f"  ✅ Epoch generation complete:")
         print(f"    - Background events: {len(background_events) if len(background_events) > 0 else 0}")
         print(f"    - Flare events: {len(flare_events) if len(flare_events) > 0 else 0}")
-        print(f"    - Total events: {len(long_sequence) if len(long_sequence) > 0 else 0}")
+        print(f"    - Total merged events: {len(long_sequence) if len(long_sequence) > 0 else 0}")
         print(f"    - Feature extraction: {feature_time:.3f}s")
         print(f"    - Available iterations: {self.num_iterations}")
         print(f"    - Total epoch time: {epoch_time:.3f}s")
+        
+        # 🔍 DETAILED RANGE ANALYSIS: Sample last 1000 events for debugging
+        self._debug_event_ranges(background_events, flare_events, long_sequence, labels)
         
         # Debug visualization (only for first few epochs)
         if self.event_visualizer is not None and self.current_epoch < 3:
             self._debug_visualize_epoch(background_events, flare_events, long_sequence, labels)
     
     def _generate_background_events(self) -> np.ndarray:
-        """Generate random background events (0.1-0.3s duration)."""
-        # Random duration
-        duration_ms = random.uniform(self.min_duration_ms, self.max_duration_ms)
+        """Generate random background events using config duration range."""
+        # Random duration from background config
+        duration_ms = random.uniform(self.bg_min_duration_ms, self.bg_max_duration_ms)
         duration_us = int(duration_ms * 1000)
         
         # Random DSEC sample - now returns numpy array directly
@@ -177,13 +189,18 @@ class EpochIterationDataset(Dataset):
         return background_events if len(background_events) > 0 else np.empty((0, 4))
     
     def _generate_flare_events(self) -> np.ndarray:
-        """Generate random flare events (0.1-0.3s duration)."""
-        # Random duration
-        duration_ms = random.uniform(self.min_duration_ms, self.max_duration_ms)
+        """Generate random flare events using flare_synthesis duration range."""
+        # Random duration from flare_synthesis config
+        duration_ms = random.uniform(self.flare_min_duration_ms, self.flare_max_duration_ms)
+        duration_sec = duration_ms / 1000.0
         
         # Temporarily modify config for desired duration
-        original_duration = self.config['data']['flare_synthesis'].get('duration_sec', 0.3)
-        self.config['data']['flare_synthesis']['duration_sec'] = duration_ms / 1000.0
+        # 🚨 FIX: Use duration_range instead of deprecated duration_sec
+        original_duration_range = self.config['data']['flare_synthesis'].get('duration_range', [0.05, 0.15])
+        
+        # Set a fixed duration for this generation (within the range)
+        temp_duration_range = [duration_sec, duration_sec]  # Fixed duration for this call
+        self.config['data']['flare_synthesis']['duration_range'] = temp_duration_range
         
         try:
             # Generate flare events using DVS simulator
@@ -191,9 +208,10 @@ class EpochIterationDataset(Dataset):
             
             # Handle empty generation
             if len(flare_events) == 0:
-                print("    Warning: DVS simulation generated no events")
+                print(f"    Warning: DVS simulation generated no events (duration: {duration_ms:.1f}ms)")
                 return np.empty((0, 4))
             
+            print(f"    Flare events generated: {len(flare_events)} events, duration: {duration_ms:.1f}ms")
             return flare_events
             
         except Exception as e:
@@ -201,7 +219,7 @@ class EpochIterationDataset(Dataset):
             return np.empty((0, 4))
         finally:
             # Restore original config
-            self.config['data']['flare_synthesis']['duration_sec'] = original_duration
+            self.config['data']['flare_synthesis']['duration_range'] = original_duration_range
     
     def _merge_and_sort_events(self, background_events: np.ndarray, 
                               flare_events: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -297,6 +315,46 @@ class EpochIterationDataset(Dataset):
             
         return merged_events, merged_labels
     
+    def _debug_event_ranges(self, background_events: np.ndarray, flare_events: np.ndarray, 
+                           merged_events: np.ndarray, labels: np.ndarray):
+        """Debug analysis of event ranges (x, y, t) for last 1000 events."""
+        print(f"\n  🔍 DEBUG RANGE ANALYSIS:")
+        
+        def analyze_events(events, name, sample_size=1000):
+            if len(events) == 0:
+                print(f"    {name}: EMPTY")
+                return
+                
+            # Sample last N events
+            sample = events[-sample_size:] if len(events) > sample_size else events
+            
+            x_range = (sample[:, 0].min(), sample[:, 0].max())
+            y_range = (sample[:, 1].min(), sample[:, 1].max()) 
+            t_range = (sample[:, 2].min(), sample[:, 2].max())
+            t_duration_ms = (t_range[1] - t_range[0]) / 1000.0  # Convert μs to ms
+            
+            print(f"    {name} (last {len(sample)} events):")
+            print(f"      X range: [{x_range[0]:.1f}, {x_range[1]:.1f}]")
+            print(f"      Y range: [{y_range[0]:.1f}, {y_range[1]:.1f}]") 
+            print(f"      T range: [{t_range[0]:.0f}, {t_range[1]:.0f}] μs")
+            print(f"      Duration: {t_duration_ms:.2f} ms")
+        
+        # Analyze each event type
+        analyze_events(background_events, "Background Events")
+        
+        if len(flare_events) > 0:
+            # Format flare events for analysis
+            flare_formatted = self._format_flare_events(flare_events)
+            analyze_events(flare_formatted, "Flare Events")
+        
+        analyze_events(merged_events, "Merged Events")
+        
+        # Label distribution
+        if len(labels) > 0:
+            bg_count = np.sum(labels == 0)
+            flare_count = np.sum(labels == 1)
+            print(f"    Label distribution: Background={bg_count}, Flare={flare_count}")
+
     def _debug_visualize_epoch(self, background_events: np.ndarray, flare_events: np.ndarray,
                               merged_events: np.ndarray, labels: np.ndarray):
         """Debug visualization for epoch-level data generation."""
