@@ -101,8 +101,8 @@ class V2CEFlareEventGenerator:
         print(f"V2CE input resolution: {self.v2ce_resolution[0]}x{self.v2ce_resolution[1]}")
         print(f"Target output resolution: {self.target_resolution[0]}x{self.target_resolution[1]}")
         
-        # 🔍 RESTORE: 恢复V2CE debug以诊断统一系统问题
-        self.debug_mode = config.get('debug_mode', False)
+        # 🚨 DISABLE: Flare sequence debug disabled (using unified debug_epoch_000 instead)
+        self.debug_mode = False  # config.get('debug_mode', False)
         self.debug_save_dir = config.get('debug_output_dir', './output/debug_visualizations_v2ce')
         self.debug_counter = 0
         if self.debug_mode:
@@ -718,8 +718,8 @@ class IEBCSFlareEventGenerator:
         )
         print(f"IEBCS resolution: {self.iebcs_resolution[0]}x{self.iebcs_resolution[1]}")
         
-        # 🔍 RESTORE: 恢复IEBCS debug以诊断统一系统问题
-        self.debug_mode = config.get('debug_mode', False)
+        # 🚨 DISABLE: Flare sequence debug disabled (using unified debug_epoch_000 instead)
+        self.debug_mode = False  # config.get('debug_mode', False)
         self.debug_save_dir = config.get('debug_output_dir', './output/debug_visualizations_iebcs')
         self.debug_counter = 0
         if self.debug_mode:
@@ -1159,8 +1159,8 @@ class DVSFlareEventGenerator:
         )
         print(f"DVS simulator resolution set to: {self.dvs_resolution[0]}x{self.dvs_resolution[1]}")
         
-        # 🔍 RESTORE: 恢复DVS debug以诊断统一系统问题
-        self.debug_mode = config.get('debug_mode', False)
+        # 🚨 DISABLE: Flare sequence debug disabled (using unified debug_epoch_000 instead)
+        self.debug_mode = False  # config.get('debug_mode', False)
         self.debug_save_dir = config.get('debug_output_dir', './output/debug_visualizations_dvs')
         self.debug_counter = 0  # Counter for unique debug filenames
         if self.debug_mode:

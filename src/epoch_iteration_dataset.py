@@ -451,8 +451,10 @@ class EpochIterationDataset(Dataset):
             # 2. Flare events visualization (单独显示炫光事件)
             if len(flare_events) > 0:
                 print(f"    ✨ Flare events: {len(flare_events)} events")
+                # 🚨 BUG FIX: Convert DVS format [t,x,y,p] to project format [x,y,t,p] for visualization
+                flare_formatted = self._format_flare_events(flare_events)
                 self._create_event_sequence_visualization(
-                    flare_events,
+                    flare_formatted,
                     os.path.join(epoch_debug_dir, "flare_events"), 
                     "Flare Events (DVS)",
                     event_type="flare"
