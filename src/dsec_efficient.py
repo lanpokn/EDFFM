@@ -153,6 +153,11 @@ class DSECEventDatasetEfficient(Dataset):
         if len(events) == 0:
             # Handle empty window - return empty array
             events = np.empty((0, 4), dtype=np.float64)
+        else:
+            # 🚨 CRITICAL: Normalize timestamps to start from 0
+            # This is essential for proper merging with flare events
+            t_min = events[:, 2].min()
+            events[:, 2] = events[:, 2] - t_min
 
         # Return raw numpy array for epoch-level processing
         # Labels will be generated at epoch level when merging with flare events

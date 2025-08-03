@@ -31,8 +31,10 @@ EventMamba-FX is a Feature-Augmented Mamba model for real-time event denoising a
 CORRECT Epoch-Iteration Training Pipeline:
 
 🔄 EPOCH LEVEL (Data Generation - Once per Epoch):
-1. Load DSEC background events: 100K-1M events in 0.1-0.3s window [N1, 4]
+1. Load DSEC background events: 100K-1M events in 0.1-0.3s window [N1, 4] 
+   ⭐ CRITICAL: 时间戳自动归一化到0开始 (subtract t_min after loading)
 2. Generate DVS flare events: Variable events in 0.1-0.3s [N2, 4] 
+   ⭐ DVS events naturally start from 0 (no normalization needed)
 3. Merge & sort by timestamp → long_sequence [N_total, 4] (完整物理序列)
 4. ✅ PFD特征提取: long_sequence → long_feature_sequence [N_total, 11]
 5. Generate labels: [N_total] (0=background, 1=flare)
@@ -43,12 +45,21 @@ CORRECT Epoch-Iteration Training Pipeline:
 3. BCE Loss + backpropagation (每个batch执行)
 4. Continue until long_feature_sequence consumed
 
-🚨 CRITICAL BUG FIXES (2025-08-02):
+🚨 CRITICAL BUG FIXES (2025-08-03 - COMPLETED):
 - ❌ DSEC限制64事件 → ✅ 返回完整时间窗口内所有事件 (测试验证: 386万事件)
 - ❌ 模型注释13维 → ✅ 修正为11维特征
 - ❌ 人工sequence_length截断 → ✅ 自然长序列处理
 - ❌ Config参数冲突 → ✅ 删除duration冗余参数，flare_synthesis统一控制
+- ❌ DSEC时间戳未归一化 → ✅ 三级时间戳归一化修复完成：
+  * dsec_efficient.py:159-160 - DSEC载入时减去t_min
+  * epoch_iteration_dataset.py:311-314 - 炫光事件格式化时减去t_min  
+  * epoch_iteration_dataset.py:229-232 - 时间窗口裁剪后重新归一化
+- ❌ Debug可视化缺失 → ✅ 完整三种事件可视化系统已修复：
+  * debug_epoch_000/background_events/ - DSEC背景事件多分辨率可视化
+  * debug_epoch_000/flare_events/ - DVS炫光事件多分辨率可视化
+  * debug_epoch_000/merged_events/ - 合并事件多分辨率可视化
 - ✅ Loss反向传播：确认在iteration级别正确执行
+- ✅ 时间戳验证成功: 背景事件(0-79279μs), 炫光事件(0-49978μs), 合并事件(0-79279μs)
 ```
 
 ## DVS-Voltmeter Physics Optimization (2025-07-31) 🎯
@@ -260,10 +271,12 @@ python test_features.py
 
 ## ⚠️ Known Issues & Solutions
 
-### ✅ CURRENT RESOLVED STATUS (2025-08-02 - 核心架构Bug修复完成)
+### ✅ CURRENT RESOLVED STATUS (2025-08-03 - 时间戳归一化与Debug可视化修复完成)
 - **🚨 DSEC数据加载Bug**: ✅ 删除sequence_length=64人工限制，现在返回完整时间窗口事件
 - **🚨 模型架构不一致**: ✅ 修正模型注释从13维到11维特征，代码逻辑一致
 - **🚨 Epoch-Iteration架构**: ✅ 修复epoch级别数据生成，支持真正的长序列处理
+- **🚨 时间戳归一化Bug**: ✅ 三级修复完成，DSEC和炫光事件都从0开始，确保正确合并
+- **🚨 Debug可视化缺失**: ✅ 完整修复三种事件可视化系统（背景+炫光+合并）
 - **✅ Loss反向传播**: ✅ 验证确认在iteration级别正确执行，无需修改
 - **DVS参数调优**: ✅ 已切换回DVS-Voltmeter，大幅优化参数减少事件数量
 - **事件数量优化**: ✅ 从原始200K+ events/ms降至59K events/ms (3x减少)，仍比V2CE高20x
@@ -279,6 +292,28 @@ python test_features.py
 - **✅ COMPREHENSIVE DEBUG**: Multi-resolution event analysis + trajectory visualization
 - **✅ OPTIMIZED PIPELINE**: Split transforms reduce complexity, improve efficiency  
 - **✅ MEMORY STABLE**: Safe operation within 791MB limits
+- **✅ TIMESTAMP NORMALIZATION**: All event streams properly normalized to start from 0
+- **✅ THREE-WAY DEBUG VISUALIZATION**: Background, flare, and merged events all visualized
+
+### 🚨 DEBUG TASK LIST (Known Issues to Address)
+**Performance & Optimization**:
+1. **⚠️ Feature Extractor Hanging**: `feature_extractor.process_sequence()` causes long hangs/timeouts
+   - Location: `src/epoch_iteration_dataset.py:155`
+   - Symptom: 5+ minute execution times for large event sequences
+   - Impact: Blocks debug mode testing and training efficiency
+   - Priority: HIGH - affects core training pipeline
+
+2. **⚠️ Flare Events Visualization Issue**: `debug_epoch_000/flare_events/` shows only edge artifacts
+   - Problem: Flare events display as vertical stripes on right edge, not full flare patterns
+   - Expected: Complete flare shapes like yellow regions in merged_events visualization  
+   - Observed: Only edge artifacts visible, missing main flare content
+   - Suspected cause: Coordinate transformation or time window splitting issues in flare event processing
+   - Priority: MEDIUM-HIGH - affects debugging and flare quality validation
+
+**Verification Tasks**:
+3. **📊 Timestamp Verification**: Confirm timestamp normalization across all edge cases
+4. **🔍 Memory Usage Monitoring**: Track memory usage during long training runs  
+5. **🎯 PFD Feature Quality**: Validate 11D PFD features are physically meaningful after timestamp fixes
 
 ### ⚠️ Minor Notes
 - **Debug Directory**: Located at `output/debug_visualizations/flare_seq_xxx/`

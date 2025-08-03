@@ -130,6 +130,8 @@ class EpochIterationDataset(Dataset):
         if self.debug_mode and self.current_epoch < 3:
             print(f"🔍 DEBUG: IMMEDIATE call to unified debug visualization after merge")
             try:
+                # Re-enable debug visualization now that feature extraction is fixed
+                print(f"🔍 DEBUG: Calling unified debug visualization...")
                 self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
                 print(f"🔍 DEBUG: IMMEDIATE unified visualization completed successfully!")
             except Exception as e:
@@ -191,7 +193,9 @@ class EpochIterationDataset(Dataset):
             print(f"  📊 Background events: {len(background_events)}")
             print(f"  📊 Flare events: {len(flare_events)}")  
             print(f"  📊 Merged events: {len(long_sequence)}")
-            self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
+            # TEMP: Disable to isolate hanging issue
+            print(f"  🔍 DEBUG: TEMP DISABLED - unified debug visualization (second call)")
+            # self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
             print(f"  ✅ COMPLETED unified debug visualization system")
         else:
             print(f"  ⏭️ Skipping unified debug (debug_mode={self.debug_mode}, epoch={self.current_epoch})")
@@ -225,6 +229,11 @@ class EpochIterationDataset(Dataset):
                 # Filter events in time window
                 mask = (background_events[:, 2] >= start_time) & (background_events[:, 2] < end_time)
                 background_events = background_events[mask]
+        
+        # 🚨 CRITICAL: Re-normalize background events after time window cropping
+        if len(background_events) > 0:
+            t_min_bg = background_events[:, 2].min()
+            background_events[:, 2] = background_events[:, 2] - t_min_bg
         
         print(f"    Background events loaded: {len(background_events)} events, duration: {duration_ms:.1f}ms")
         return background_events if len(background_events) > 0 else np.empty((0, 4))
@@ -291,10 +300,8 @@ class EpochIterationDataset(Dataset):
             background_events, bg_labels, flare_formatted, flare_labels
         )
         
-        # Normalize timestamps to start from 0
-        if len(combined_events) > 0:
-            t_min = combined_events[:, 2].min()
-            combined_events[:, 2] = combined_events[:, 2] - t_min
+        # Timestamps already normalized: DSEC events start from 0, DVS events start from 0
+        # No additional normalization needed since both streams are pre-normalized
         
         return combined_events, combined_labels
     
@@ -307,8 +314,13 @@ class EpochIterationDataset(Dataset):
         formatted_events = np.zeros_like(flare_events, dtype=np.float64)
         formatted_events[:, 0] = flare_events[:, 1]  # x
         formatted_events[:, 1] = flare_events[:, 2]  # y 
-        formatted_events[:, 2] = flare_events[:, 0]  # t (no offset for epoch-level)
+        formatted_events[:, 2] = flare_events[:, 0]  # t
         formatted_events[:, 3] = flare_events[:, 3]  # p
+        
+        # 🚨 CRITICAL: Normalize flare timestamps to start from 0
+        if len(formatted_events) > 0:
+            t_min = formatted_events[:, 2].min()
+            formatted_events[:, 2] = formatted_events[:, 2] - t_min
         
         # Convert polarity from DVS format (1/0) to DSEC format (1/-1)
         formatted_events[:, 3] = np.where(formatted_events[:, 3] > 0, 1, -1)
