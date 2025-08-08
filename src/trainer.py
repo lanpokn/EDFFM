@@ -16,7 +16,8 @@ class Trainer:
             self.model.parameters(),
             lr=self.config['training']['learning_rate']
         )
-        self.criterion = nn.BCELoss() # 二元交叉熵损失
+        # 建议使用BCEWithLogitsLoss以获得更好的数值稳定性
+        self.criterion = nn.BCEWithLogitsLoss()
         self.epochs = self.config['training']['epochs']
         self.checkpoint_dir = self.config['training']['checkpoint_dir']
         
@@ -44,6 +45,10 @@ class Trainer:
         # 外循环: 遍历长序列
         outer_loop_desc = f"Epoch {self.current_epoch+1}/{self.epochs}"
         for long_features, long_labels in tqdm(self.train_loader, desc=outer_loop_desc):
+            # ### BEGIN BUGFIX 1: STATE LEAKAGE ###
+            self.model.reset_hidden_state()
+            # ### END BUGFIX 1 ###
+
             long_features = long_features.squeeze(0).to(self.device)
             long_labels = long_labels.squeeze(0).to(self.device)
 
@@ -51,14 +56,23 @@ class Trainer:
             for i in range(0, long_features.shape[0], self.chunk_size):
                 chunk_features = long_features[i : i + self.chunk_size]
                 chunk_labels = long_labels[i : i + self.chunk_size]
-                if chunk_features.shape[0] != self.chunk_size: 
+                if chunk_features.shape[0] < 1: # 跳过空块
                     continue
+                
+                # 注意：不再跳过最后一个不完整的块，让模型也学习它
+                # if chunk_features.shape[0] != self.chunk_size:
+                #     continue
                     
                 chunk_features = chunk_features.unsqueeze(0)
                 self.optimizer.zero_grad()
+                
+                # 假设模型输出logits (BCEWithLogitsLoss)
                 predictions = self.model(chunk_features)
-                labels_float = chunk_labels.float().unsqueeze(0).unsqueeze(-1)
-                loss = self.criterion(predictions, labels_float)
+                
+                # 调整维度以匹配损失函数
+                # predictions: [1, L, 1] -> [L]
+                # chunk_labels: [L]
+                loss = self.criterion(predictions.squeeze(), chunk_labels.float())
                 loss.backward()
                 self.optimizer.step()
 
@@ -84,7 +98,10 @@ class Trainer:
         with torch.no_grad():
             # 外循环：遍历所有长序列
             for long_features, long_labels in tqdm(self.val_loader, desc="Validating"):
-                
+                # ### BEGIN BUGFIX 1: STATE LEAKAGE ###
+                self.model.reset_hidden_state()
+                # ### END BUGFIX 1 ###
+
                 # DataLoader返回(1, L, D)，需要解包
                 long_features = long_features.squeeze(0).to(self.device)
                 long_labels = long_labels.squeeze(0).to(self.device)
@@ -96,22 +113,21 @@ class Trainer:
                     chunk_features = long_features[i : i + self.chunk_size]
                     chunk_labels = long_labels[i : i + self.chunk_size]
 
-                    # 2. 如果是最后一个不完整的块，则跳过
-                    if chunk_features.shape[0] != self.chunk_size:
+                    if chunk_features.shape[0] < 1:
                         continue
+                    
+                    # 注意：验证时也不再跳过最后一个块
+                    # if chunk_features.shape[0] != self.chunk_size:
+                    #     continue
 
-                    # 3. 准备模型输入
                     chunk_features = chunk_features.unsqueeze(0)
-                    
-                    # 4. 模型前向传播
                     predictions = self.model(chunk_features)
-
-                    # 5. 计算损失
-                    labels_float = chunk_labels.float().unsqueeze(0).unsqueeze(-1)
-                    loss = self.criterion(predictions, labels_float)
                     
-                    total_loss += loss.item()
-                    total_chunks_processed += 1
+                    loss = self.criterion(predictions.squeeze(), chunk_labels.float())
+                    
+                    # 按块的长度加权损失，更公平
+                    total_loss += loss.item() * len(chunk_features)
+                    total_chunks_processed += len(chunk_features)
                     
         return total_loss / total_chunks_processed if total_chunks_processed > 0 else 0
 

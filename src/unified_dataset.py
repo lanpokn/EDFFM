@@ -102,12 +102,18 @@ def create_unified_dataloaders(config):
     train_dataset = UnifiedSequenceDataset(config, split='train')
     val_dataset = UnifiedSequenceDataset(config, split='val')
     
-    #永远不要shuffle
+    # ### BEGIN BUGFIX 4: DATALOADER CONFIG ###
+    # 对于有状态TBPTT，永远不要shuffle，并且使用单进程加载以保证顺序和生成安全
+    shuffle = False
     num_workers = 0
+    # ### END BUGFIX 4 ###
     
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=num_workers)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers) # 验证集通常不shuffle
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=shuffle, num_workers=num_workers)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers)
 
-    print(f"📊 Unified dataloaders ({config['data_pipeline']['mode']}): Train={len(train_loader)}, Val={len(val_loader)} sequences/epoch")
+    print(f"📊 Created Unified Dataloaders in '{config['data_pipeline']['mode']}' mode")
+    print(f"  - Train: {len(train_loader)} sequences per epoch")
+    print(f"  - Val:   {len(val_loader)} sequences per epoch")
+    print(f"  - Shuffle: {shuffle}, Workers: {num_workers} (Fixed for TBPTT)")
 
     return train_loader, val_loader

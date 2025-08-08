@@ -2,68 +2,97 @@ import argparse
 import yaml
 import torch
 import os
+from tqdm import tqdm
+from torch.utils.data import DataLoader
 
-from src.mixed_flare_dataloaders import create_mixed_flare_dataloaders
-from src.epoch_iteration_dataset import create_epoch_iteration_dataloaders
-from src.unified_dataset import create_unified_dataloaders
-from src.model import EventDenoisingMamba # 确认导入的是修正后的模型
+from src.unified_dataset import UnifiedSequenceDataset, create_unified_dataloaders
+from src.model import EventDenoisingMamba
 from src.trainer import Trainer
 from src.evaluate import Evaluator
 
 def main(config):
-    """
-    Main function to run the training and evaluation pipeline.
-    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    # Debug mode setup
-    if config.get('debug_mode', False):
-        output_dir = os.path.join("output", "debug_visualizations")
-        os.makedirs(output_dir, exist_ok=True)
-        config['debug_output_dir'] = output_dir
-        print(f"🚨 DEBUG MODE: Saving visualizations to {output_dir}")
-        print(f"🚨 DEBUG MODE: Will run limited iterations for debugging")
+    # ### BEGIN BUGFIX 2 & 3: WORKFLOW REFACTOR ###
 
-    # 1. 创建数据集加载器
-    pipeline_mode = config.get('data_pipeline', {}).get('mode', 'legacy')
-    
-    if pipeline_mode in ['generate', 'load']:
-        print(f"🚀 Initializing unified data pipeline in '{pipeline_mode}' mode...")
-        train_loader, val_loader = create_unified_dataloaders(config)
-        test_loader = None # 暂时不处理测试集
-        print("✅ Unified dataloaders created successfully")
-    elif pipeline_mode == 'tbptt_legacy':
-        print("🎯 Using legacy TBPTT architecture")
-        print("🔍 DEBUG: Creating legacy TBPTT dataloaders...")
-        train_loader, val_loader, test_loader = create_epoch_iteration_dataloaders(config)
-        print("🔍 DEBUG: Legacy TBPTT dataloaders created successfully")
-    else:
-        print("📊 Using legacy mixed flare dataloaders")
-        train_loader, val_loader, test_loader = create_mixed_flare_dataloaders(config)
+    pipeline_mode = config['data_pipeline']['mode']
+    run_mode = config['run']['mode']
 
-    # 2. 初始化模型 (关键修正)
-    # 现在我们将特征提取器和Mamba模型的配置分开传递
+    # --- 工作流 1: 数据预生成 ---
+    if pipeline_mode == 'generate':
+        print("🚀 Starting DATA PRE-GENERATION mode. This will not start training.")
+        
+        # 生成训练数据
+        print("\n--- Generating training data ---")
+        train_gen_dataset = UnifiedSequenceDataset(config, split='train')
+        for i in tqdm(range(len(train_gen_dataset)), desc="Generating Train Seqs"):
+            train_gen_dataset[i]
+        
+        # 生成验证数据
+        print("\n--- Generating validation data ---")
+        val_gen_dataset = UnifiedSequenceDataset(config, split='val')
+        for i in tqdm(range(len(val_gen_dataset)), desc="Generating Val Seqs"):
+            val_gen_dataset[i]
+
+        # (可选) 生成测试数据
+        if config.get('evaluation', {}).get('num_long_sequences_per_epoch', 0) > 0:
+            print("\n--- Generating test data ---")
+            test_gen_dataset = UnifiedSequenceDataset(config, split='test')
+            for i in tqdm(range(len(test_gen_dataset)), desc="Generating Test Seqs"):
+                test_gen_dataset[i]
+        
+        print("\n✅ Data pre-generation complete.")
+        print("   Please change 'mode' in your config's 'data_pipeline' to 'load' to start training or evaluation.")
+        return # 关键：生成完数据后直接退出程序
+
+    # --- 必须是 'load' 模式才能继续 ---
+    if pipeline_mode != 'load':
+        raise ValueError(f"Invalid data_pipeline mode '{pipeline_mode}'. Must be 'generate' or 'load'.")
+
+    # --- 初始化模型 ---
     model = EventDenoisingMamba(config).to(device)
-    
     print(f"Model initialized with {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters.")
 
-    # 3. 根据模式选择执行
-    if config['run']['mode'] == 'train':
-        print("🔍 DEBUG: Starting training mode...")
+    # --- 工作流 2: 模型训练 ---
+    if run_mode == 'train':
+        print("\n🚀 Starting TRAINING mode...")
+        train_loader, val_loader = create_unified_dataloaders(config)
         trainer = Trainer(model, train_loader, val_loader, config, device)
-        print("🔍 DEBUG: Trainer created, calling trainer.train()...")
         trainer.train()
-        print("🔍 DEBUG: Training completed")
-    elif config['run']['mode'] == 'evaluate':
-        print("🔍 DEBUG: Starting evaluation mode...")
-        evaluator = Evaluator(model, test_loader, config, device)
-        model.load_state_dict(torch.load(config['evaluation']['checkpoint_path']))
-        print(f"Loaded checkpoint from: {config['evaluation']['checkpoint_path']}")
-        evaluator.evaluate()
-    else:
-        raise ValueError(f"Unknown mode: {config['run']['mode']}")
 
+    # --- 工作流 3: 模型评估 ---
+    elif run_mode == 'evaluate':
+        print("\n🚀 Starting EVALUATION mode...")
+        print("🛠️ Creating test dataloader for evaluation...")
+        
+        try:
+            test_dataset = UnifiedSequenceDataset(config, split='test')
+            test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0)
+            print(f"✅ Test dataloader created with {len(test_dataset)} sequences.")
+        except FileNotFoundError as e:
+            print(f"❌ ERROR: {e}")
+            print("❌ Please ensure you have pre-generated the 'test' data split using the 'generate' mode.")
+            return
+
+        checkpoint_path = config['evaluation']['checkpoint_path']
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint for evaluation not found at: {checkpoint_path}")
+        
+        # 注意: 如果只评估，加载完整的state_dict是不安全的。
+        # 这里我们假设checkpoint是可信的。
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        print(f"Loaded model state from: {checkpoint_path}")
+        
+        # 假设 Evaluator 类也实现了正确的状态重置和不完整块处理
+        evaluator = Evaluator(model, test_loader, config, device)
+        evaluator.evaluate()
+
+    else:
+        raise ValueError(f"Unknown run mode: {run_mode}")
+    
+    # ### END BUGFIX ###
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train and evaluate the EventMamba-FX model.")

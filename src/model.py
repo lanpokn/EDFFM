@@ -57,6 +57,24 @@ class EventDenoisingMamba(nn.Module):
         for layer in self.layers:
             x = layer(x)
         logits = self.classification_head(x)
-        probabilities = torch.sigmoid(logits)
+        # 注意：现在返回logits而不是probabilities，配合BCEWithLogitsLoss使用
         
-        return probabilities
+        return logits
+
+    # ### BEGIN BUGFIX ###
+    def reset_hidden_state(self):
+        """
+        重置模型中所有Mamba层的内部隐藏状态。
+        这对于在处理新的独立序列（无论是训练、验证还是测试）之前至关重要。
+        """
+        # 这是一个健壮的实现，它会遍历模型的所有子模块
+        # 并为找到的每一个Mamba层重置状态。
+        try:
+            for module in self.modules():
+                if isinstance(module, Mamba):
+                    # mamba-ssm库通过重置inference_params来清除状态
+                    if hasattr(module, 'inference_params'):
+                        module.inference_params = None
+        except Exception as e:
+            print(f"Warning: Could not reset Mamba states: {e}")
+    # ### END BUGFIX ###
