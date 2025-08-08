@@ -9,7 +9,7 @@ run:
 # --- 数据管线设置 (Data Pipeline Settings) ---
 data_pipeline:
   # 🚨 关键开关: 'generate' 或 'load'
-  mode: 'load'           # 'generate': 实时生成并存档, 'load': 从磁盘加载预生成数据
+  mode: 'generate'           # 'generate': 实时生成并存档, 'load': 从磁盘加载预生成数据
   
   # 'generate'和'load'模式都需要的存档路径
   h5_archive_path: 'data/generated_h5'
@@ -21,7 +21,8 @@ data:
   
   # Flare7Kpp数据集路径 (Compound_Flare散射数据)
   flare7k_path: "/mnt/e/2025/physical_deflare/Datasets/Flare7Kpp/Flare7Kpp"
-  
+  # 向后兼容参数 (保持原有接口)
+  time_window_us: 1000000   # 1 second (基础参数，会被随机化覆盖)
   # 事件仿真器选择 (Event Simulator Selection)
   event_simulator:
     type: "dvs_voltmeter"
@@ -95,11 +96,11 @@ training:
   chunk_size: 8192                              # TBPTT截断长度 (根据显存调整)
   
   # 每个epoch的长序列数量
-  num_long_sequences_per_epoch: 150              # generate用序列数
+  num_long_sequences_per_epoch: 200              # generate用序列数
   
   # 验证和保存频率 (基于步数)
-  validate_every_n_steps: 1000                  # 每1000个chunks验证一次
-  save_every_n_steps: 2000                      # 每2000个chunks保存一次
+  validate_every_n_steps: 5000                  # 每1000个chunks验证一次
+  save_every_n_steps: 10000                      # 每2000个chunks保存一次
 
 # --- 评估设置 (Evaluation Settings) ---
 evaluation:
