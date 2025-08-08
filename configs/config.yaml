@@ -1,6 +1,24 @@
 # ===================================================================
-#      Configuration File for EventMamba-FX (Optimized Structure)
+#      Configuration File for EventMamba-FX (TBPTT Architecture)
 # ===================================================================
+#
+# 🎯 TBPTT (Truncated Backpropagation Through Time) Architecture:
+#
+# 新架构概念说明：
+# - DataLoader: "长序列工厂" - 每次返回一个完整的长特征序列
+# - Trainer: "序列消化器" - 在长序列上进行TBPTT chunk切分训练
+# 
+# 工作流程：
+# 1. DataLoader生成一个完整的长序列 [L, feature_dim]
+# 2. Trainer将其切分为固定大小的chunks [chunk_size, feature_dim]
+# 3. 每个chunk独立进行前向+反向传播（梯度被截断）
+# 4. 模型状态在每个chunk边界重置，但通过连续数据学习跨边界模式
+#
+# 优势：
+# - 适合超长序列训练（数万个事件）
+# - 内存友好：每次只处理一个chunk
+# - 梯度稳定：截断避免梯度消失/爆炸
+# ==================================================================
 
 # --- 运行设置 (Run Settings) ---
 run:
@@ -9,9 +27,10 @@ run:
 
 # --- 数据管线设置 (Data Pipeline Settings) ---
 data_pipeline:
-  use_epoch_iteration: true   # 🚨 NEW: Enable Epoch-Iteration architecture
-                             # true: 先完整序列特征提取，再滑动窗口 (正确)
-                             # false: 每次__getitem__重新生成数据 (legacy)
+  use_tbptt: true            # 🚨 NEW: Enable TBPTT (Truncated Backpropagation Through Time)
+                             # TBPTT架构：DataLoader生成长序列，Trainer进行chunk切分训练
+                             # true: 长序列工厂 + 序列消化器架构 (TBPTT标准)
+                             # false: 传统batch训练 (legacy)
   
 # --- 数据集设置 (Data Settings) ---
 data:
@@ -194,11 +213,16 @@ feature_extractor:
 # --- 训练设置 (Training Settings) ---
 training:
   epochs: 1  # 验证用，只训练1轮
-  batch_size: 2  # 小batch size避免内存爆炸！！！重要安全措施
   learning_rate: 0.001
   checkpoint_dir: "./checkpoints" # 保存模型权重的目录
+  
+  # ✅ TBPTT (Truncated Backpropagation Through Time) 参数
+  chunk_size: 128                          # TBPTT截断长度 (取代旧的batch_size在训练中的作用)
+  num_long_sequences_per_epoch: 100        # 每个训练epoch包含的独立长序列数量
 
 # --- 评估设置 (Evaluation Settings) ---
 evaluation:
-  batch_size: 2  # 与训练保持一致，避免内存问题
   checkpoint_path: "./checkpoints/best_model.pth" # 评估时加载的模型路径
+  
+  # TBPTT 验证参数
+  num_long_sequences_per_epoch: 20         # 每个验证epoch包含的独立长序列数量

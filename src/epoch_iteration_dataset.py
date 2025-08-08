@@ -27,21 +27,21 @@ from src.event_visualization_utils import EventVisualizer
 
 class EpochIterationDataset(Dataset):
     """
-    Dataset implementing Epoch-Iteration architecture:
+    Dataset implementing TBPTT (Truncated Backpropagation Through Time) architecture:
     
-    Epoch Level (Data Generation):
+    Long Sequence Factory:
+    - Each __getitem__ call generates one complete long sequence
     - Load background events (0.1-0.3s duration)
     - Generate flare events (0.1-0.3s duration)  
     - Merge and sort → long_sequence [N, 4]
     - Extract features → long_feature_sequence [N, 11]
+    - Return complete feature sequence for TBPTT chunking in Trainer
     
-    Iteration Level (Model Training):
-    - Sliding window sampling from long_feature_sequence
-    - Return fixed-length batches (e.g., 64 consecutive events)
+    No sliding window sampling - that's handled by Trainer's TBPTT logic
     """
     
     def __init__(self, config: Dict, split: str = 'train'):
-        """Initialize the Epoch-Iteration dataset.
+        """Initialize the TBPTT Long Sequence Factory dataset.
         
         Args:
             config: Configuration dictionary
@@ -63,8 +63,16 @@ class EpochIterationDataset(Dataset):
         # Initialize feature extractor (CRITICAL: at dataset level)
         self.feature_extractor = FeatureExtractor(config)
         
-        # Training parameters
-        self.sequence_length = config['data']['sequence_length']  # e.g., 64
+        # TBPTT parameters - different for train/val splits
+        if split == 'train':
+            self.num_long_sequences_per_epoch = config['training'].get('num_long_sequences_per_epoch', 100)
+        elif split == 'val':
+            self.num_long_sequences_per_epoch = config['evaluation'].get('num_long_sequences_per_epoch', 20)
+        else:  # test
+            self.num_long_sequences_per_epoch = config['evaluation'].get('num_long_sequences_per_epoch', 20)
+            
+        # Keep sequence_length for backward compatibility with debug system
+        self.sequence_length = config['data'].get('sequence_length', 64)
         
         # Background duration from config
         bg_range = config['data']['randomized_training']['background_duration_range']
@@ -80,11 +88,7 @@ class EpochIterationDataset(Dataset):
         self.debug_mode = config.get('debug_mode', False)
         self.max_samples = config['data'].get('max_samples_debug', None)
         
-        # Epoch-level data (regenerated each epoch)
-        self.current_epoch = -1
-        self.long_feature_sequence = None  # [N, 4] - the core feature sequence
-        self.long_labels = None           # [N] - corresponding labels
-        self.num_iterations = 0           # Number of iterations possible in current epoch
+        # Remove epoch-level state - each __getitem__ generates fresh data
         
         # Initialize event visualizer (debug mode only)
         self.event_visualizer = None
@@ -94,115 +98,144 @@ class EpochIterationDataset(Dataset):
             self.event_visualizer = EventVisualizer(viz_output_dir, resolution)
             print(f"🚨 DEBUG MODE: Epoch-Iteration analysis enabled, output: {viz_output_dir}")
         
-        print(f"Initialized EpochIterationDataset ({split}): {len(self.dsec_dataset)} background samples available")
+        print(f"Initialized TBPTT Long Sequence Factory ({split}): {len(self.dsec_dataset)} background samples available")
+        print(f"  - Long sequences per epoch: {self.num_long_sequences_per_epoch}")
     
-    def new_epoch(self):
+    def _generate_one_long_sequence(self):
         """
-        Generate new epoch-level data:
+        Generate one complete long sequence for TBPTT:
         1. Sample background events (0.1-0.3s)
         2. Generate flare events (0.1-0.3s)
         3. Merge & sort → long_sequence
         4. Extract features → long_feature_sequence
-        """
-        print(f"\n🔄 Generating new epoch data (Epoch {self.current_epoch + 1})")
-        print(f"🔍 DEBUG: new_epoch() started, debug_mode={self.debug_mode}")
-        epoch_start_time = time.time()
         
-        self.current_epoch += 1
+        Returns:
+            Tuple of (long_feature_sequence, long_labels)
+        """
+        # Only print debug info occasionally to avoid spam
+        debug_print = getattr(self, '_sequence_count', 0) < 3
+        if debug_print:
+            print(f"\n🔄 Generating one long sequence")
+            print(f"🔍 DEBUG: _generate_one_long_sequence() started, debug_mode={self.debug_mode}")
+        sequence_start_time = time.time()
         
         # Step 1: Generate background events
-        print("  Step 1: Loading background events...")
-        background_events = self._generate_background_events()
+        if debug_print:
+            print("  Step 1: Loading background events...")
+        background_events = self._generate_background_events(debug_print)
         
         # Step 2: Generate flare events  
-        print("  Step 2: Generating flare events...")
-        print(f"🔍 DEBUG: About to call _generate_flare_events()")
-        flare_events = self._generate_flare_events()
-        print(f"🔍 DEBUG: _generate_flare_events() completed, got {len(flare_events)} events")
+        if debug_print:
+            print("  Step 2: Generating flare events...")
+            print(f"🔍 DEBUG: About to call _generate_flare_events()")
+        flare_events = self._generate_flare_events(debug_print)
+        if debug_print:
+            print(f"🔍 DEBUG: _generate_flare_events() completed, got {len(flare_events)} events")
         
         # Step 3: Merge and sort events
-        print("  Step 3: Merging and sorting events...")
-        print(f"🔍 DEBUG: About to merge {len(background_events)} bg + {len(flare_events)} flare events")
+        if debug_print:
+            print("  Step 3: Merging and sorting events...")
+            print(f"🔍 DEBUG: About to merge {len(background_events)} bg + {len(flare_events)} flare events")
         long_sequence, labels = self._merge_and_sort_events(background_events, flare_events)
-        print(f"🔍 DEBUG: Merge completed, got {len(long_sequence)} total events")
+        if debug_print:
+            print(f"🔍 DEBUG: Merge completed, got {len(long_sequence)} total events")
         
-        # 🚨 IMMEDIATE DEBUG VISUALIZATION: Call right after merge, before feature extraction
-        if self.debug_mode and self.current_epoch < 3:
-            print(f"🔍 DEBUG: IMMEDIATE call to unified debug visualization after merge")
+        # 🚨 IMMEDIATE DEBUG VISUALIZATION: Call right after merge, before feature extraction  
+        sequence_count = getattr(self, '_sequence_count', 0)
+        if self.debug_mode and sequence_count < 3:
+            if debug_print:
+                print(f"🔍 DEBUG: IMMEDIATE call to unified debug visualization after merge")
             try:
                 # Re-enable debug visualization now that feature extraction is fixed
-                print(f"🔍 DEBUG: Calling unified debug visualization...")
+                if debug_print:
+                    print(f"🔍 DEBUG: Calling unified debug visualization...")
+                # Temporarily set current_epoch for compatibility
+                self.current_epoch = sequence_count
                 self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
-                print(f"🔍 DEBUG: IMMEDIATE unified visualization completed successfully!")
+                if debug_print:
+                    print(f"🔍 DEBUG: IMMEDIATE unified visualization completed successfully!")
             except Exception as e:
-                print(f"🔍 DEBUG: IMMEDIATE visualization failed: {e}")
-                import traceback
-                traceback.print_exc()
+                if debug_print:
+                    print(f"🔍 DEBUG: IMMEDIATE visualization failed: {e}")
+                    import traceback
+                    traceback.print_exc()
         
         # Step 4: CRITICAL - Extract features on complete sequence
-        print("  Step 4: Extracting PFD features on complete sequence...")
-        print(f"🔍 DEBUG: About to extract features from {len(long_sequence)} events")
+        if debug_print:
+            print("  Step 4: Extracting PFD features on complete sequence...")
+            print(f"🔍 DEBUG: About to extract features from {len(long_sequence)} events")
         feature_start_time = time.time()
         
         if len(long_sequence) == 0:
-            print("    Warning: Empty sequence, creating minimal fallback")
-            self.long_feature_sequence = np.zeros((1, 11), dtype=np.float32)
-            self.long_labels = np.zeros(1, dtype=np.int64)
-            self.num_iterations = 1
+            if debug_print:
+                print("    Warning: Empty sequence, creating minimal fallback")
+            long_feature_sequence = np.zeros((1, 11), dtype=np.float32)
+            long_labels = np.zeros(1, dtype=np.int64)
         else:
             # ✅ CORE REQUIREMENT: Extract features on complete sequence FIRST
-            print(f"🔍 DEBUG: Calling feature_extractor.process_sequence()...")
-            self.long_feature_sequence = self.feature_extractor.process_sequence(long_sequence)  # [N, 4] → [N, 11]
-            print(f"🔍 DEBUG: Feature extraction completed, got {len(self.long_feature_sequence)} feature vectors")
-            self.long_labels = labels
-            
-            # Calculate number of possible iterations (sliding window)
-            total_events = len(self.long_feature_sequence)
-            self.num_iterations = max(1, total_events - self.sequence_length + 1)
-            print(f"🔍 DEBUG: Calculated {self.num_iterations} iterations for sliding window")
+            if debug_print:
+                print(f"🔍 DEBUG: Calling feature_extractor.process_sequence()...")
+            long_feature_sequence = self.feature_extractor.process_sequence(long_sequence)  # [N, 4] → [N, 11]
+            if debug_print:
+                print(f"🔍 DEBUG: Feature extraction completed, got {len(long_feature_sequence)} feature vectors")
+            long_labels = labels
         
         feature_time = time.time() - feature_start_time
-        epoch_time = time.time() - epoch_start_time
+        sequence_time = time.time() - sequence_start_time
         
         # 🔍 ENHANCED DEBUG OUTPUT: Event counts and ranges analysis
-        print(f"  ✅ Epoch generation complete:")
-        print(f"    - Background events: {len(background_events) if len(background_events) > 0 else 0}")
-        print(f"    - Flare events: {len(flare_events) if len(flare_events) > 0 else 0}")
-        print(f"    - Total merged events: {len(long_sequence) if len(long_sequence) > 0 else 0}")
-        print(f"    - Feature extraction: {feature_time:.3f}s")
-        print(f"    - Available iterations: {self.num_iterations}")
-        print(f"    - Total epoch time: {epoch_time:.3f}s")
+        if debug_print:
+            print(f"  ✅ Long sequence generation complete:")
+            print(f"    - Background events: {len(background_events) if len(background_events) > 0 else 0}")
+            print(f"    - Flare events: {len(flare_events) if len(flare_events) > 0 else 0}")
+            print(f"    - Total merged events: {len(long_sequence) if len(long_sequence) > 0 else 0}")
+            print(f"    - Feature extraction: {feature_time:.3f}s")
+            print(f"    - Sequence length: {len(long_feature_sequence)}")
+            print(f"    - Total sequence time: {sequence_time:.3f}s")
         
         # 🔍 DETAILED RANGE ANALYSIS: Sample last 1000 events for debugging
-        self._debug_event_ranges(background_events, flare_events, long_sequence, labels)
+        if debug_print:
+            self._debug_event_ranges(background_events, flare_events, long_sequence, long_labels)
         
-        print(f"🔍 DEBUG: Reached visualization section")
-        print(f"🔍 DEBUG: event_visualizer = {self.event_visualizer is not None}")
-        print(f"🔍 DEBUG: current_epoch = {self.current_epoch}")
-        print(f"🔍 DEBUG: debug_mode = {self.debug_mode}")
+        # Remove problematic debug prints that reference non-existent attributes
+        
+        # Debug visualization only for first few sequences (avoid spam)
+        sequence_count = getattr(self, '_sequence_count', 0)
+        self._sequence_count = sequence_count + 1
         
         # 🎯 RESTORE ORIGINAL DEBUG VISUALIZATION: 恢复原本的可视化系统
-        if self.event_visualizer is not None and self.current_epoch < 3:
+        if self.event_visualizer is not None and sequence_count < 3:
             print(f"  🎯 Running original debug visualization system...")
-            self._debug_visualize_epoch(background_events, flare_events, long_sequence, labels)
+            # Temporarily set current_epoch for compatibility with existing debug methods
+            self.current_epoch = sequence_count
+            self._debug_visualize_epoch(background_events, flare_events, long_sequence, long_labels)
         
         # 🎯 UNIFIED DEBUG VISUALIZATION: 统一可视化系统 (补充)
-        print(f"  🔍 Debug state: debug_mode={self.debug_mode}, current_epoch={self.current_epoch}")
-        if self.debug_mode and self.current_epoch < 3:
-            print(f"  📊 CALLING unified debug visualization system...")
-            print(f"  📊 Background events: {len(background_events)}")
-            print(f"  📊 Flare events: {len(flare_events)}")  
-            print(f"  📊 Merged events: {len(long_sequence)}")
+        if debug_print:
+            print(f"  🔍 Debug state: debug_mode={self.debug_mode}, sequence_count={sequence_count}")
+        if self.debug_mode and sequence_count < 3:
+            if debug_print:
+                print(f"  📊 CALLING unified debug visualization system...")
+                print(f"  📊 Background events: {len(background_events)}")
+                print(f"  📊 Flare events: {len(flare_events)}")  
+                print(f"  📊 Merged events: {len(long_sequence)}")
+            # Temporarily set current_epoch for compatibility with existing debug methods
+            self.current_epoch = sequence_count
             # TEMP: Disable to isolate hanging issue
-            print(f"  🔍 DEBUG: TEMP DISABLED - unified debug visualization (second call)")
-            # self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
-            print(f"  ✅ COMPLETED unified debug visualization system")
-        else:
-            print(f"  ⏭️ Skipping unified debug (debug_mode={self.debug_mode}, epoch={self.current_epoch})")
+            if debug_print:
+                print(f"  🔍 DEBUG: TEMP DISABLED - unified debug visualization (second call)")
+            # self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, long_labels)
+            if debug_print:
+                print(f"  ✅ COMPLETED unified debug visualization system")
+        elif debug_print:
+            print(f"  ⏭️ Skipping unified debug (debug_mode={self.debug_mode}, sequence_count={sequence_count})")
         
-        print(f"🔍 DEBUG: new_epoch() completed successfully")
+        if debug_print:
+            print(f"🔍 DEBUG: _generate_one_long_sequence() completed successfully")
+        
+        return long_feature_sequence, long_labels
     
-    def _generate_background_events(self) -> np.ndarray:
+    def _generate_background_events(self, debug_print: bool = True) -> np.ndarray:
         """Generate random background events using config duration range."""
         # Random duration from background config
         duration_ms = random.uniform(self.bg_min_duration_ms, self.bg_max_duration_ms)
@@ -235,10 +268,11 @@ class EpochIterationDataset(Dataset):
             t_min_bg = background_events[:, 2].min()
             background_events[:, 2] = background_events[:, 2] - t_min_bg
         
-        print(f"    Background events loaded: {len(background_events)} events, duration: {duration_ms:.1f}ms")
+        if debug_print:
+            print(f"    Background events loaded: {len(background_events)} events, duration: {duration_ms:.1f}ms")
         return background_events if len(background_events) > 0 else np.empty((0, 4))
     
-    def _generate_flare_events(self) -> np.ndarray:
+    def _generate_flare_events(self, debug_print: bool = True) -> np.ndarray:
         """Generate random flare events using flare_synthesis duration range."""
         # Random duration from flare_synthesis config
         duration_ms = random.uniform(self.flare_min_duration_ms, self.flare_max_duration_ms)
@@ -258,11 +292,13 @@ class EpochIterationDataset(Dataset):
             
             # Handle empty generation
             if len(flare_events) == 0:
-                print(f"    Warning: DVS simulation generated no events (duration: {duration_ms:.1f}ms)")
+                if debug_print:
+                    print(f"    Warning: DVS simulation generated no events (duration: {duration_ms:.1f}ms)")
                 self.current_flare_video_frames = []  # Set empty list for consistency
                 return np.empty((0, 4))
             
-            print(f"    Flare events generated: {len(flare_events)} events, duration: {duration_ms:.1f}ms")
+            if debug_print:
+                print(f"    Flare events generated: {len(flare_events)} events, duration: {duration_ms:.1f}ms")
             
             # Store flare video frames for debug visualization
             self.current_flare_video_frames = flare_video_frames
@@ -270,7 +306,8 @@ class EpochIterationDataset(Dataset):
             return flare_events
             
         except Exception as e:
-            print(f"    Error in flare generation: {e}")
+            if debug_print:
+                print(f"    Error in flare generation: {e}")
             self.current_flare_video_frames = []  # Set empty list for consistency
             return np.empty((0, 4))
         finally:
@@ -696,145 +733,56 @@ class EpochIterationDataset(Dataset):
             
             # Epoch configuration
             f.write(f"Epoch Configuration:\n")
-            f.write(f"  Epoch index: {self.current_epoch}\n")
+            f.write(f"  Sequence index: {getattr(self, 'current_epoch', 0)}\n")
             f.write(f"  Resolution: {self.config['data']['resolution_w']}x{self.config['data']['resolution_h']}\n")
-            f.write(f"  Sequence length: {self.sequence_length}\n")
+            f.write(f"  TBPTT chunk size: {self.config['training'].get('chunk_size', 'Not set')}\n")
+            f.write(f"  Long sequences per epoch: {self.num_long_sequences_per_epoch}\n")
             bg_range = self.config['data']['randomized_training']['background_duration_range']
             f.write(f"  Background duration range: {bg_range[0]*1000:.0f}-{bg_range[1]*1000:.0f}ms\n")
             flare_range = self.config['data']['flare_synthesis']['duration_range']
             f.write(f"  Flare duration range: {flare_range[0]*1000:.0f}-{flare_range[1]*1000:.0f}ms\n")
     
     def __len__(self) -> int:
-        """Return number of possible iterations in current epoch."""
-        if self.long_feature_sequence is None:
-            return 0
-        return self.num_iterations
+        """Return number of long sequences per epoch for TBPTT."""
+        return self.num_long_sequences_per_epoch
     
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Get iteration-level sample via sliding window.
+        Generate one complete long sequence for TBPTT.
         
         Args:
-            idx: Iteration index (0 to num_iterations-1)
+            idx: Index (0 to num_long_sequences_per_epoch-1) - used as random seed
             
         Returns:
-            Tuple of (features_tensor, labels_tensor)
-            features_tensor: [sequence_length, 4] - fixed-length feature window
-            labels_tensor: [sequence_length] - corresponding labels
+            Tuple of (long_features_tensor, long_labels_tensor)
+            long_features_tensor: [L, feature_dim] - complete feature sequence
+            long_labels_tensor: [L] - corresponding labels
         """
-        # Ensure epoch data is generated
-        if self.long_feature_sequence is None:
-            self.new_epoch()
+        # Set random seed based on index for reproducibility during the same epoch
+        random_state = random.getstate()
+        random.seed(idx)
         
-        # Handle edge cases
-        if len(self.long_feature_sequence) == 0:
-            # Return empty tensors
-            empty_features = torch.zeros((self.sequence_length, 11), dtype=torch.float32)
-            empty_labels = torch.zeros(self.sequence_length, dtype=torch.long)
-            return empty_features, empty_labels
-        
-        # Sliding window sampling
-        total_features = len(self.long_feature_sequence)
-        
-        if total_features <= self.sequence_length:
-            # Sequence is shorter than required - pad with zeros
-            features = np.zeros((self.sequence_length, 11), dtype=np.float32)
-            labels = np.zeros(self.sequence_length, dtype=np.int64)
+        try:
+            # Generate one complete long sequence
+            long_features, long_labels = self._generate_one_long_sequence()
             
-            features[:total_features] = self.long_feature_sequence
-            labels[:total_features] = self.long_labels
-        else:
-            # Sliding window - sequential, non-overlapping sampling
-            start_idx = idx
-            end_idx = start_idx + self.sequence_length
+            # Convert to tensors
+            features_tensor = torch.tensor(long_features, dtype=torch.float32)
+            labels_tensor = torch.tensor(long_labels, dtype=torch.long)
             
-            # Clamp to valid range
-            if end_idx > total_features:
-                start_idx = total_features - self.sequence_length
-                end_idx = total_features
+            return features_tensor, labels_tensor
             
-            features = self.long_feature_sequence[start_idx:end_idx]
-            labels = self.long_labels[start_idx:end_idx]
-        
-        # Convert to tensors
-        features_tensor = torch.tensor(features, dtype=torch.float32)
-        labels_tensor = torch.tensor(labels, dtype=torch.long)
-        
-        return features_tensor, labels_tensor
+        finally:
+            # Restore random state
+            random.setstate(random_state)
 
 
-class EpochIterationDataLoader:
-    """
-    Custom DataLoader implementing Epoch-Iteration architecture.
-    
-    Handles epoch regeneration and provides standard DataLoader interface.
-    """
-    
-    def __init__(self, dataset: EpochIterationDataset, batch_size: int = 2, 
-                 shuffle: bool = True, num_workers: int = 0):
-        """Initialize Epoch-Iteration DataLoader."""
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.shuffle = shuffle
-        self.num_workers = num_workers
-        
-        # Generate initial epoch
-        print(f"🔍 DEBUG: DataLoader calling dataset.new_epoch()...")
-        self.dataset.new_epoch()
-        print(f"🔍 DEBUG: DataLoader new_epoch() completed")
-        
-        # Calculate batches per epoch
-        self.batches_per_epoch = max(1, len(self.dataset) // batch_size)
-        
-        print(f"EpochIterationDataLoader initialized:")
-        print(f"  - Iterations per epoch: {len(self.dataset)}")
-        print(f"  - Batches per epoch: {self.batches_per_epoch}")
-        print(f"  - Batch size: {batch_size}")
-    
-    def __len__(self):
-        """Return number of batches per epoch."""
-        return self.batches_per_epoch
-    
-    def __iter__(self):
-        """Iterate through batches, regenerating epoch data when needed."""
-        # Generate new epoch data
-        self.dataset.new_epoch()
-        
-        # Update batch count
-        self.batches_per_epoch = max(1, len(self.dataset) // self.batch_size)
-        
-        # Create iteration indices
-        indices = list(range(len(self.dataset)))
-        if self.shuffle:
-            random.shuffle(indices)
-        
-        # Yield batches
-        batch_count = 0
-        for i in range(0, len(indices), self.batch_size):
-            if batch_count >= self.batches_per_epoch:
-                break
-                
-            batch_indices = indices[i:i + self.batch_size]
-            
-            # Collect batch data
-            batch_features = []
-            batch_labels = []
-            
-            for idx in batch_indices:
-                features, labels = self.dataset[idx]
-                batch_features.append(features)
-                batch_labels.append(labels)
-            
-            # Stack into batch tensors
-            batch_features_tensor = torch.stack(batch_features)  # [batch_size, sequence_length, 11]
-            batch_labels_tensor = torch.stack(batch_labels)      # [batch_size, sequence_length]
-            
-            yield batch_features_tensor, batch_labels_tensor
-            batch_count += 1
+# EpochIterationDataLoader class removed - now using standard PyTorch DataLoader
+# The TBPTT chunking logic is moved to Trainer class
 
 
-def create_epoch_iteration_dataloaders(config: Dict) -> Tuple[EpochIterationDataLoader, EpochIterationDataLoader, EpochIterationDataLoader]:
-    """Create Epoch-Iteration DataLoaders for training.
+def create_epoch_iteration_dataloaders(config: Dict) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """Create TBPTT Long Sequence Factory DataLoaders for training.
     
     Args:
         config: Configuration dictionary
@@ -842,38 +790,49 @@ def create_epoch_iteration_dataloaders(config: Dict) -> Tuple[EpochIterationData
     Returns:
         Tuple of (train_loader, val_loader, test_loader)
     """
-    batch_size = config['training']['batch_size']
-    num_workers = config['data'].get('num_workers', 0)
-    
-    # Create datasets with epoch-iteration architecture
+    # Create datasets with TBPTT long sequence factory architecture
     train_dataset = EpochIterationDataset(config, split='train')
     val_dataset = EpochIterationDataset(config, split='val')  
     test_dataset = EpochIterationDataset(config, split='test')
     
-    # Create custom DataLoaders
-    train_loader = EpochIterationDataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    # Create standard PyTorch DataLoaders with TBPTT configuration
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=1,      # Always 1 for TBPTT - we process one long sequence at a time
+        shuffle=False,     # No shuffling needed since each __getitem__ generates random data
+        num_workers=0      # Recommended for complex data generation logic
     )
     
-    val_loader = EpochIterationDataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=1,
+        shuffle=False, 
+        num_workers=0
     )
     
-    test_loader = EpochIterationDataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=0
     )
     
-    print(f"Created Epoch-Iteration dataloaders:")
-    print(f"  Train: {len(train_loader)} batches per epoch")
-    print(f"  Val: {len(val_loader)} batches per epoch")
-    print(f"  Test: {len(test_loader)} batches per epoch")
+    print(f"Created TBPTT Long Sequence Factory dataloaders:")
+    print(f"  Train: {len(train_loader)} long sequences per epoch")
+    print(f"  Val: {len(val_loader)} long sequences per epoch")
+    print(f"  Test: {len(test_loader)} long sequences per epoch")
     
     return train_loader, val_loader, test_loader
 
 
 if __name__ == "__main__":
-    # Test the Epoch-Iteration dataset
+    # Test the TBPTT Long Sequence Factory dataset
     import yaml
+    import sys
+    import os
+    
+    # Add parent directory to path for imports
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
     config_path = "configs/config.yaml"
     with open(config_path, 'r') as f:
@@ -882,35 +841,38 @@ if __name__ == "__main__":
     # Enable debug mode for testing
     config['debug_mode'] = True
     config['data']['max_samples_debug'] = 4
+    config['training']['num_long_sequences_per_epoch'] = 3  # Test with 3 sequences
     
-    print("Testing Epoch-Iteration Dataset...")
+    print("Testing TBPTT Long Sequence Factory Dataset...")
     
     # Create dataset
     dataset = EpochIterationDataset(config, split='train')
     
-    # Test epoch generation
-    print("\nTesting epoch generation...")
-    dataset.new_epoch()
+    print(f"Dataset length: {len(dataset)} long sequences per epoch")
     
-    print(f"Generated epoch with {len(dataset)} iterations")
-    
-    # Test iteration sampling
-    print("\nTesting iteration sampling...")
-    for i in range(min(3, len(dataset))):
+    # Test long sequence generation
+    print("\nTesting long sequence generation...")
+    for i in range(min(2, len(dataset))):
         features, labels = dataset[i]
-        print(f"  Iteration {i}: features {features.shape}, labels {labels.shape}")
+        print(f"  Sequence {i}: features {features.shape}, labels {labels.shape}")
         print(f"    Background events: {torch.sum(labels == 0).item()}")
         print(f"    Flare events: {torch.sum(labels == 1).item()}")
+        print(f"    Sequence length: {len(features)}")
     
     # Test DataLoader
-    print("\nTesting DataLoader...")
+    print("\nTesting TBPTT DataLoader...")
     train_loader, _, _ = create_epoch_iteration_dataloaders(config)
     
-    batch_count = 0
-    for batch_features, batch_labels in train_loader:
-        print(f"  Batch {batch_count}: {batch_features.shape}, {batch_labels.shape}")
-        batch_count += 1
-        if batch_count >= 2:  # Test first 2 batches
+    sequence_count = 0
+    for long_features, long_labels in train_loader:
+        # DataLoader returns batch_size=1, so squeeze to get actual sequence
+        long_features = long_features.squeeze(0)
+        long_labels = long_labels.squeeze(0)
+        print(f"  Long Sequence {sequence_count}: features {long_features.shape}, labels {long_labels.shape}")
+        print(f"    Background events: {torch.sum(long_labels == 0).item()}")
+        print(f"    Flare events: {torch.sum(long_labels == 1).item()}")
+        sequence_count += 1
+        if sequence_count >= 2:  # Test first 2 sequences
             break
     
-    print("\n✅ Epoch-Iteration Dataset test completed!")
+    print("\n✅ TBPTT Long Sequence Factory Dataset test completed!")

@@ -25,14 +25,14 @@ def main(config):
         print(f"🚨 DEBUG MODE: Will run limited iterations for debugging")
 
     # 1. 创建数据集加载器 
-    # Check if using new Epoch-Iteration architecture
-    use_epoch_iteration = config.get('data_pipeline', {}).get('use_epoch_iteration', False)
+    # Check if using new TBPTT architecture
+    use_tbptt = config.get('data_pipeline', {}).get('use_tbptt', False)
     
-    if use_epoch_iteration:
-        print("🔄 Using Epoch-Iteration architecture (先完整序列特征提取，再滑动窗口)")
-        print("🔍 DEBUG: Creating epoch iteration dataloaders...")
+    if use_tbptt:
+        print("🎯 Using TBPTT architecture (长序列工厂 + 序列消化器)")
+        print("🔍 DEBUG: Creating TBPTT long sequence dataloaders...")
         train_loader, val_loader, test_loader = create_epoch_iteration_dataloaders(config)
-        print("🔍 DEBUG: Dataloaders created successfully")
+        print("🔍 DEBUG: TBPTT dataloaders created successfully")
     else:
         print("📊 Using legacy mixed flare dataloaders")
         train_loader, val_loader, test_loader = create_mixed_flare_dataloaders(config)
