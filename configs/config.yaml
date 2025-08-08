@@ -92,7 +92,7 @@ training:
   checkpoint_dir: "./checkpoints"
   
   # TBPTT (Truncated Backpropagation Through Time) 参数
-  chunk_size: 4096                              # TBPTT截断长度 (根据显存调整)
+  chunk_size: 8192                              # TBPTT截断长度 (根据显存调整)
   
   # 每个epoch的长序列数量
   num_long_sequences_per_epoch: 20              # 训练用序列数
