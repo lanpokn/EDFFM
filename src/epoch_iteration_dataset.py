@@ -113,89 +113,80 @@ class EpochIterationDataset(Dataset):
             Tuple of (long_feature_sequence, long_labels)
         """
         # Only print debug info occasionally to avoid spam
-        debug_print = getattr(self, '_sequence_count', 0) < 3
-        if debug_print:
-            print(f"\n🔄 Generating one long sequence")
-            print(f"🔍 DEBUG: _generate_one_long_sequence() started, debug_mode={self.debug_mode}")
+        debug_print = False  # Disabled to reduce output noise
+        # if debug_print:
+        #     print(f"\n🔄 Generating one long sequence")
+        #     print(f"🔍 DEBUG: _generate_one_long_sequence() started, debug_mode={self.debug_mode}")
         sequence_start_time = time.time()
         
         # Step 1: Generate background events
-        if debug_print:
-            print("  Step 1: Loading background events...")
+        # if debug_print:
+        #     print("  Step 1: Loading background events...")
         background_events = self._generate_background_events(debug_print)
         
         # Step 2: Generate flare events  
-        if debug_print:
-            print("  Step 2: Generating flare events...")
-            print(f"🔍 DEBUG: About to call _generate_flare_events()")
+        # if debug_print:
+        #     print("  Step 2: Generating flare events...")
+        #     print(f"🔍 DEBUG: About to call _generate_flare_events()")
         flare_events = self._generate_flare_events(debug_print)
-        if debug_print:
-            print(f"🔍 DEBUG: _generate_flare_events() completed, got {len(flare_events)} events")
+        # if debug_print:
+        #     print(f"🔍 DEBUG: _generate_flare_events() completed, got {len(flare_events)} events")
         
         # Step 3: Merge and sort events
-        if debug_print:
-            print("  Step 3: Merging and sorting events...")
-            print(f"🔍 DEBUG: About to merge {len(background_events)} bg + {len(flare_events)} flare events")
+        # if debug_print:
+        #     print("  Step 3: Merging and sorting events...")
+        #     print(f"🔍 DEBUG: About to merge {len(background_events)} bg + {len(flare_events)} flare events")
         long_sequence, labels = self._merge_and_sort_events(background_events, flare_events)
-        if debug_print:
-            print(f"🔍 DEBUG: Merge completed, got {len(long_sequence)} total events")
+        # if debug_print:
+        #     print(f"🔍 DEBUG: Merge completed, got {len(long_sequence)} total events")
         
         # 🚨 IMMEDIATE DEBUG VISUALIZATION: Call right after merge, before feature extraction  
         sequence_count = getattr(self, '_sequence_count', 0)
         if self.debug_mode and sequence_count < 3:
-            if debug_print:
-                print(f"🔍 DEBUG: IMMEDIATE call to unified debug visualization after merge")
             try:
                 # Re-enable debug visualization now that feature extraction is fixed
-                if debug_print:
-                    print(f"🔍 DEBUG: Calling unified debug visualization...")
                 # Temporarily set current_epoch for compatibility
                 self.current_epoch = sequence_count
                 self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, labels)
-                if debug_print:
-                    print(f"🔍 DEBUG: IMMEDIATE unified visualization completed successfully!")
             except Exception as e:
-                if debug_print:
-                    print(f"🔍 DEBUG: IMMEDIATE visualization failed: {e}")
-                    import traceback
-                    traceback.print_exc()
+                print(f"Debug visualization failed: {e}")
         
         # Step 4: CRITICAL - Extract features on complete sequence
-        if debug_print:
-            print("  Step 4: Extracting PFD features on complete sequence...")
-            print(f"🔍 DEBUG: About to extract features from {len(long_sequence)} events")
+        # if debug_print:
+        #     print("  Step 4: Extracting PFD features on complete sequence...")
+        #     print(f"🔍 DEBUG: About to extract features from {len(long_sequence)} events")
         feature_start_time = time.time()
         
         if len(long_sequence) == 0:
-            if debug_print:
-                print("    Warning: Empty sequence, creating minimal fallback")
+            # if debug_print:
+            #     print("    Warning: Empty sequence, creating minimal fallback")
             long_feature_sequence = np.zeros((1, 11), dtype=np.float32)
             long_labels = np.zeros(1, dtype=np.int64)
         else:
             # ✅ CORE REQUIREMENT: Extract features on complete sequence FIRST
-            if debug_print:
-                print(f"🔍 DEBUG: Calling feature_extractor.process_sequence()...")
+            # if debug_print:
+            #     print(f"🔍 DEBUG: Calling feature_extractor.process_sequence()...")
             long_feature_sequence = self.feature_extractor.process_sequence(long_sequence)  # [N, 4] → [N, 11]
-            if debug_print:
-                print(f"🔍 DEBUG: Feature extraction completed, got {len(long_feature_sequence)} feature vectors")
+            # if debug_print:
+            #     print(f"🔍 DEBUG: Feature extraction completed, got {len(long_feature_sequence)} feature vectors")
             long_labels = labels
         
         feature_time = time.time() - feature_start_time
         sequence_time = time.time() - sequence_start_time
         
         # 🔍 ENHANCED DEBUG OUTPUT: Event counts and ranges analysis
-        if debug_print:
-            print(f"  ✅ Long sequence generation complete:")
-            print(f"    - Background events: {len(background_events) if len(background_events) > 0 else 0}")
-            print(f"    - Flare events: {len(flare_events) if len(flare_events) > 0 else 0}")
-            print(f"    - Total merged events: {len(long_sequence) if len(long_sequence) > 0 else 0}")
-            print(f"    - Feature extraction: {feature_time:.3f}s")
-            print(f"    - Sequence length: {len(long_feature_sequence)}")
-            print(f"    - Total sequence time: {sequence_time:.3f}s")
+        # if debug_print:
+        #     print(f"  ✅ Long sequence generation complete:")
+        #     print(f"    - Background events: {len(background_events) if len(background_events) > 0 else 0}")
+        #     print(f"    - Flare events: {len(flare_events) if len(flare_events) > 0 else 0}")
+        #     print(f"    - Total merged events: {len(long_sequence) if len(long_sequence) > 0 else 0}")
+        #     print(f"    - Feature extraction: {feature_time:.3f}s")
+        #     print(f"    - Sequence length: {len(long_feature_sequence)}")
+        #     print(f"    - Total sequence time: {sequence_time:.3f}s")
         
         # 🔍 DETAILED RANGE ANALYSIS: Sample last 1000 events for debugging
-        if debug_print:
-            self._debug_event_ranges(background_events, flare_events, long_sequence, long_labels)
+        # if debug_print:
+        #     self._debug_event_ranges(background_events, flare_events, long_sequence, long_labels)
         
         # Remove problematic debug prints that reference non-existent attributes
         
@@ -205,37 +196,26 @@ class EpochIterationDataset(Dataset):
         
         # 🎯 RESTORE ORIGINAL DEBUG VISUALIZATION: 恢复原本的可视化系统
         if self.event_visualizer is not None and sequence_count < 3:
-            print(f"  🎯 Running original debug visualization system...")
             # Temporarily set current_epoch for compatibility with existing debug methods
             self.current_epoch = sequence_count
             self._debug_visualize_epoch(background_events, flare_events, long_sequence, long_labels)
         
         # 🎯 UNIFIED DEBUG VISUALIZATION: 统一可视化系统 (补充)
-        if debug_print:
-            print(f"  🔍 Debug state: debug_mode={self.debug_mode}, sequence_count={sequence_count}")
+        # if debug_print:
+        #     print(f"  🔍 Debug state: debug_mode={self.debug_mode}, sequence_count={sequence_count}")
         if self.debug_mode and sequence_count < 3:
-            if debug_print:
-                print(f"  📊 CALLING unified debug visualization system...")
-                print(f"  📊 Background events: {len(background_events)}")
-                print(f"  📊 Flare events: {len(flare_events)}")  
-                print(f"  📊 Merged events: {len(long_sequence)}")
             # Temporarily set current_epoch for compatibility with existing debug methods
             self.current_epoch = sequence_count
             # TEMP: Disable to isolate hanging issue
-            if debug_print:
-                print(f"  🔍 DEBUG: TEMP DISABLED - unified debug visualization (second call)")
             # self._save_unified_debug_visualizations(background_events, flare_events, long_sequence, long_labels)
-            if debug_print:
-                print(f"  ✅ COMPLETED unified debug visualization system")
-        elif debug_print:
-            print(f"  ⏭️ Skipping unified debug (debug_mode={self.debug_mode}, sequence_count={sequence_count})")
+            pass
         
-        if debug_print:
-            print(f"🔍 DEBUG: _generate_one_long_sequence() completed successfully")
+        # if debug_print:
+        #     print(f"🔍 DEBUG: _generate_one_long_sequence() completed successfully")
         
         return long_feature_sequence, long_labels
     
-    def _generate_background_events(self, debug_print: bool = True) -> np.ndarray:
+    def _generate_background_events(self, debug_print: bool = False) -> np.ndarray:
         """Generate random background events using config duration range."""
         # Random duration from background config
         duration_ms = random.uniform(self.bg_min_duration_ms, self.bg_max_duration_ms)
@@ -268,11 +248,11 @@ class EpochIterationDataset(Dataset):
             t_min_bg = background_events[:, 2].min()
             background_events[:, 2] = background_events[:, 2] - t_min_bg
         
-        if debug_print:
-            print(f"    Background events loaded: {len(background_events)} events, duration: {duration_ms:.1f}ms")
+        # if debug_print:
+        #     print(f"    Background events loaded: {len(background_events)} events, duration: {duration_ms:.1f}ms")
         return background_events if len(background_events) > 0 else np.empty((0, 4))
     
-    def _generate_flare_events(self, debug_print: bool = True) -> np.ndarray:
+    def _generate_flare_events(self, debug_print: bool = False) -> np.ndarray:
         """Generate random flare events using flare_synthesis duration range."""
         # Random duration from flare_synthesis config
         duration_ms = random.uniform(self.flare_min_duration_ms, self.flare_max_duration_ms)
@@ -292,13 +272,13 @@ class EpochIterationDataset(Dataset):
             
             # Handle empty generation
             if len(flare_events) == 0:
-                if debug_print:
-                    print(f"    Warning: DVS simulation generated no events (duration: {duration_ms:.1f}ms)")
+                # if debug_print:
+                #     print(f"    Warning: DVS simulation generated no events (duration: {duration_ms:.1f}ms)")
                 self.current_flare_video_frames = []  # Set empty list for consistency
                 return np.empty((0, 4))
             
-            if debug_print:
-                print(f"    Flare events generated: {len(flare_events)} events, duration: {duration_ms:.1f}ms")
+            # if debug_print:
+            #     print(f"    Flare events generated: {len(flare_events)} events, duration: {duration_ms:.1f}ms")
             
             # Store flare video frames for debug visualization
             self.current_flare_video_frames = flare_video_frames
@@ -306,8 +286,8 @@ class EpochIterationDataset(Dataset):
             return flare_events
             
         except Exception as e:
-            if debug_print:
-                print(f"    Error in flare generation: {e}")
+            # if debug_print:
+            #     print(f"    Error in flare generation: {e}")
             self.current_flare_video_frames = []  # Set empty list for consistency
             return np.empty((0, 4))
         finally:

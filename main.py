@@ -78,6 +78,7 @@ if __name__ == '__main__':
     # Enable debug mode if --debug flag is set
     if args.debug:
         config['debug_mode'] = True
+        print("Debug mode enabled.")
         # Limit iterations for debug mode
         config['training']['max_epochs'] = 1
         config['training']['max_samples_debug'] = 8  # Only process a few samples

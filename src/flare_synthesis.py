@@ -229,7 +229,7 @@ class FlareFlickeringSynthesizer:
         # Ensure curve is in [min_intensity, max_intensity] range
         curve = np.clip(curve, min_intensity, max_intensity)
         
-        print(f"  Generated linear_triangle flicker curve: baseline={min_intensity:.2f}, range=[{min_intensity:.2f}, {max_intensity:.2f}]")
+        # print(f"  Generated linear_triangle flicker curve: baseline={min_intensity:.2f}, range=[{min_intensity:.2f}, {max_intensity:.2f}]")
         
         return curve
     
@@ -302,8 +302,8 @@ class FlareFlickeringSynthesizer:
         # 计算等效速度 (仅用于显示)
         equivalent_speed = total_distance_pixels / duration_sec if duration_sec > 0 else 0
         
-        print(f"  Generated movement: {total_distance_pixels:.1f} pixels in {duration_sec:.3f}s "
-              f"(≈{equivalent_speed:.1f} pixels/s), angle={np.degrees(movement_angle):.1f}°")
+        # print(f"  Generated movement: {total_distance_pixels:.1f} pixels in {duration_sec:.3f}s "
+        #       f"(≈{equivalent_speed:.1f} pixels/s), angle={np.degrees(movement_angle):.1f}°")
         
         return movement_path
     
@@ -339,7 +339,7 @@ class FlareFlickeringSynthesizer:
             # Normalize to [0, 1]
             flare_rgb = flare_rgb.astype(np.float32) / 255.0
             
-            print(f"  Loaded positioned flare: {flare_rgb.shape[:2]} (before final crop)")
+            # print(f"  Loaded positioned flare: {flare_rgb.shape[:2]} (before final crop)")
             
             return flare_rgb
             
@@ -413,7 +413,7 @@ class FlareFlickeringSynthesizer:
         flare_h, flare_w = flare_rgb.shape[:2]
         target_w, target_h = self.target_resolution
         
-        print(f"  Working with positioned flare: {flare_h}x{flare_w}, target: {target_h}x{target_w}")
+        # print(f"  Working with positioned flare: {flare_h}x{flare_w}, target: {target_h}x{target_w}")
         
         # Convert RGB to light intensity
         flare_intensity = self.rgb_to_light_intensity(flare_rgb)

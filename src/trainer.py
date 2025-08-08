@@ -22,7 +22,7 @@ class Trainer:
         
         # TBPTT parameters
         self.chunk_size = config['training']['chunk_size']
-        print(f"Trainer initialized with TBPTT chunk_size: {self.chunk_size}")
+        # print(f"Trainer initialized with TBPTT chunk_size: {self.chunk_size}")
         
         # 用于断点续训的状态变量
         self.start_epoch = 0
@@ -34,7 +34,7 @@ class Trainer:
         self.validate_every_n_steps = config['training'].get('validate_every_n_steps', 500)
         self.save_every_n_steps = config['training'].get('save_every_n_steps', 1000)
         
-        print(f"💾 Checkpoint schedule: validate every {self.validate_every_n_steps} steps, save every {self.save_every_n_steps} steps")
+        # print(f"💾 Checkpoint schedule: validate every {self.validate_every_n_steps} steps, save every {self.save_every_n_steps} steps")
         
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
@@ -128,23 +128,23 @@ class Trainer:
         # 保存常规检查点，文件名包含全局步数，便于排序
         filename = os.path.join(self.checkpoint_dir, f'ckpt_step_{self.global_step:08d}.pth')
         torch.save(state, filename)
-        print(f"\n💾 Checkpoint saved to {os.path.basename(filename)}")
+        # print(f"\n💾 Checkpoint saved to {os.path.basename(filename)}")
 
         if is_best:
             best_filename = os.path.join(self.checkpoint_dir, 'best_model.pth')
             torch.save(state, best_filename)
-            print(f"🏆 Best model updated and saved")
+            # print(f"🏆 Best model updated and saved")
 
     def _load_checkpoint(self):
         """加载最新检查点"""
         # 寻找最新的检查点
         checkpoints = glob.glob(os.path.join(self.checkpoint_dir, 'ckpt_step_*.pth'))
         if not checkpoints:
-            print("INFO: No checkpoint found, starting from scratch.")
+            # print("INFO: No checkpoint found, starting from scratch.")
             return
 
         latest_checkpoint_path = max(checkpoints, key=os.path.getctime)
-        print(f"🔄 Resuming training from checkpoint: {os.path.basename(latest_checkpoint_path)}")
+        print(f"🔄 Resuming from checkpoint: {os.path.basename(latest_checkpoint_path)}")
         
         checkpoint = torch.load(latest_checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -153,20 +153,20 @@ class Trainer:
         # 关键：如果从epoch中间恢复，需要保证global_step也恢复
         self.global_step = checkpoint['global_step']
         self.best_val_loss = checkpoint['best_val_loss']
-        print(f"   Resumed at Epoch {self.start_epoch + 1}, Global Step {self.global_step}")
+        print(f"   → Epoch {self.start_epoch + 1}, Step {self.global_step}")
 
     def train(self):
-        print("🚀 Starting enhanced TBPTT training with checkpoint support")
+        print("🚀 Starting TBPTT training...")
         
         # 尝试加载检查点
         self._load_checkpoint()
         
         for epoch in range(self.start_epoch, self.epochs):
             self.current_epoch = epoch
-            print(f"\n🔍 DEBUG: Starting epoch {epoch + 1}/{self.epochs} (from global step {self.global_step})")
+            print(f"\nEpoch {epoch + 1}/{self.epochs} (step {self.global_step})")
             self.train_one_epoch() # 验证和保存逻辑已移入此函数
             
             # Epoch结束时也保存一次，以防万一
             self._save_checkpoint(is_best=False)
             
-        print("🏁 Training finished.")
+        print("🏁 Training completed.")

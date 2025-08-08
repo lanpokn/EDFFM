@@ -148,7 +148,7 @@ class V2CEFlareEventGenerator:
         
         try:
             # Step 1: Generate flickering flare video
-            print("Step 1: Generating flickering flare video for V2CE...")
+            # print("Step 1: Generating flickering flare video for V2CE...")
             step1_start = time.time()
             
             # 为V2CE生成适配的视频帧 (使用V2CE分辨率)
@@ -158,47 +158,47 @@ class V2CEFlareEventGenerator:
             
             # 计算动态帧率 (基于炫光频率)
             dynamic_fps = self._calculate_dynamic_fps(flare_metadata)
-            print(f"  Dynamic FPS for V2CE: {dynamic_fps} (flicker: {flare_metadata.get('frequency_hz', 'N/A')} Hz)")
+            # print(f"  Dynamic FPS for V2CE: {dynamic_fps} (flicker: {flare_metadata.get('frequency_hz', 'N/A')} Hz)")
             
             timing_info['flare_synthesis_sec'] = time.time() - step1_start
-            print(f"  Generated {len(video_frames)} frames in {timing_info['flare_synthesis_sec']:.3f}s")
+            # print(f"  Generated {len(video_frames)} frames in {timing_info['flare_synthesis_sec']:.3f}s")
             
             # Step 2: Save video frames as image sequence
-            print("Step 2: Saving image sequence for V2CE...")
+            # print("Step 2: Saving image sequence for V2CE...")
             step2_start = time.time()
             
             image_dir = self._save_video_as_images(video_frames, temp_dir, flare_metadata)
             
             timing_info['image_saving_sec'] = time.time() - step2_start
-            print(f"  Saved {len(video_frames)} images in {timing_info['image_saving_sec']:.3f}s")
+            # print(f"  Saved {len(video_frames)} images in {timing_info['image_saving_sec']:.3f}s")
             
             # Step 3: Run V2CE inference
-            print("Step 3: Running V2CE inference...")
+            # print("Step 3: Running V2CE inference...")
             step3_start = time.time()
             
             events_array = self._run_v2ce_inference(image_dir, dynamic_fps)
             
             timing_info['v2ce_inference_sec'] = time.time() - step3_start
-            print(f"  Generated {len(events_array)} events in {timing_info['v2ce_inference_sec']:.3f}s")
+            # print(f"  Generated {len(events_array)} events in {timing_info['v2ce_inference_sec']:.3f}s")
             
             # Step 4: Post-process events (坐标变换到目标分辨率)
-            print("Step 4: Post-processing events...")
+            # print("Step 4: Post-processing events...")
             step4_start = time.time()
             
             events_array = self._post_process_events(events_array)
             
             timing_info['post_processing_sec'] = time.time() - step4_start
-            print(f"  Post-processed events in {timing_info['post_processing_sec']:.3f}s")
+            # print(f"  Post-processed events in {timing_info['post_processing_sec']:.3f}s")
             
             # Step 5: Debug visualization with V2CE suffix
             if self.debug_mode:
-                print("Step 5: Saving debug visualizations (V2CE)...")
+                # print("Step 5: Saving debug visualizations (V2CE)...")
                 step5_start = time.time()
                 
                 self._save_debug_visualizations_v2ce(video_frames, events_array, flare_metadata)
                 
                 timing_info['debug_visualization_sec'] = time.time() - step5_start
-                print(f"  Saved debug visualizations in {timing_info['debug_visualization_sec']:.3f}s")
+                # print(f"  Saved debug visualizations in {timing_info['debug_visualization_sec']:.3f}s")
             
             # Combine metadata
             timing_info.update(flare_metadata)
@@ -384,8 +384,8 @@ class V2CEFlareEventGenerator:
         events_scaled[:, 0] = events_scaled[:, 0].astype(np.int64)  # timestamp
         events_scaled[:, 3] = events_scaled[:, 3].astype(np.int8)   # polarity
         
-        print(f"  Coordinate transform: {v2ce_w}x{v2ce_h} → {target_w}x{target_h}")
-        print(f"  Events after filtering: {len(events_scaled)}/{len(events_array)}")
+        # print(f"  Coordinate transform: {v2ce_w}x{v2ce_h} → {target_w}x{target_h}")
+        # print(f"  Events after filtering: {len(events_scaled)}/{len(events_array)}")
         
         return events_scaled
     
@@ -404,7 +404,7 @@ class V2CEFlareEventGenerator:
         os.makedirs(sequence_debug_dir, exist_ok=True)
         self.debug_counter += 1
         
-        print(f"  Saving V2CE debug to: {sequence_debug_dir}")
+        # print(f"  Saving V2CE debug to: {sequence_debug_dir}")
         
         # 1. Save original flare image sequence (V2CE input format)
         frames_dir = os.path.join(sequence_debug_dir, "v2ce_input_frames")
@@ -477,9 +477,9 @@ class V2CEFlareEventGenerator:
             # Get subdivision strategies (仿照DVS的多分辨率模式)
             subdivision_strategies = [0.5, 1, 2, 4]
             
-            print(f"  Creating V2CE multi-resolution event visualizations: {subdivision_strategies}x")
-            print(f"  Frame duration: {frame_duration_us}μs, FPS: {fps}")
-            print(f"  Event data format: [timestamp_us, x, y, polarity]")
+            # print(f"  Creating V2CE multi-resolution event visualizations: {subdivision_strategies}x")
+            # print(f"  Frame duration: {frame_duration_us}μs, FPS: {fps}")
+            # print(f"  Event data format: [timestamp_us, x, y, polarity]")
             
             # Process each subdivision strategy
             for strategy in subdivision_strategies:
@@ -489,7 +489,7 @@ class V2CEFlareEventGenerator:
                 if strategy == 0.5:
                     # 0.5x: Two frames share one event window (longer duration)
                     subdivision_duration_us = frame_duration_us * 2
-                    print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (2 frames → 1 event window)")
+                    # print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (2 frames → 1 event window)")
                     
                     # Process pairs of frames
                     for frame_idx in range(0, len(video_frames), 2):
@@ -528,7 +528,7 @@ class V2CEFlareEventGenerator:
                 elif strategy == 1:
                     # 1x: One frame per event window (standard)
                     subdivision_duration_us = frame_duration_us
-                    print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (1 frame → 1 event window)")
+                    # print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (1 frame → 1 event window)")
                     
                     for frame_idx in range(len(video_frames)):
                         frame_start_time = events_array[0, 0] + frame_idx * frame_duration_us
@@ -561,7 +561,7 @@ class V2CEFlareEventGenerator:
                 elif strategy == 2:
                     # 2x: Two subdivisions per frame (higher temporal resolution)
                     subdivision_duration_us = frame_duration_us // 2
-                    print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (2 subdivisions per frame)")
+                    # print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (2 subdivisions per frame)")
                     
                     for frame_idx in range(len(video_frames)):
                         for sub_idx in range(2):
@@ -595,7 +595,7 @@ class V2CEFlareEventGenerator:
                 elif strategy == 4:
                     # 4x: Four subdivisions per frame (highest temporal resolution)
                     subdivision_duration_us = frame_duration_us // 4
-                    print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (4 subdivisions per frame)")
+                    # print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (4 subdivisions per frame)")
                     
                     for frame_idx in range(len(video_frames)):
                         for sub_idx in range(4):
@@ -626,7 +626,7 @@ class V2CEFlareEventGenerator:
                             vis_bgr = cv2.cvtColor(vis_canvas, cv2.COLOR_RGB2BGR)
                             cv2.imwrite(vis_path, vis_bgr)
         
-        print(f"  Saved V2CE debug: {len(video_frames)} input frames + event visualizations")
+        # print(f"  Saved V2CE debug: {len(video_frames)} input frames + event visualizations")
     
     def _calculate_dynamic_fps(self, flare_metadata: Dict) -> int:
         """Calculate correct FPS for V2CE based on input video's actual framerate.
@@ -664,20 +664,20 @@ class V2CEFlareEventGenerator:
         
         if ideal_fps > max_supported_fps:
             compression_ratio = ideal_fps / max_supported_fps
-            print(f"  ⚠️ Ideal fps {ideal_fps:.0f} > max supported {max_supported_fps}")
-            print(f"  Time will be expanded by {compression_ratio:.1f}x (longer than expected)")
+            # print(f"  ⚠️ Ideal fps {ideal_fps:.0f} > max supported {max_supported_fps}")
+            # print(f"  Time will be expanded by {compression_ratio:.1f}x (longer than expected)")
         elif ideal_fps < min_supported_fps:
             expansion_ratio = min_supported_fps / ideal_fps
-            print(f"  ⚠️ Ideal fps {ideal_fps:.0f} < min supported {min_supported_fps}")
-            print(f"  Time will be compressed by {expansion_ratio:.1f}x (shorter than expected)")
+            # print(f"  ⚠️ Ideal fps {ideal_fps:.0f} < min supported {min_supported_fps}")
+            # print(f"  Time will be compressed by {expansion_ratio:.1f}x (shorter than expected)")
         
         # 计算预期的时间匹配度
         video_duration_sec = flare_metadata.get('duration_sec', 0.05)
         total_frames = flare_metadata.get('total_frames', 80)
         expected_v2ce_duration = total_frames / optimal_fps * 1000  # ms
         
-        print(f"  V2CE FPS: {optimal_fps} (video fps: {actual_video_fps})")
-        print(f"  Expected time span: {expected_v2ce_duration:.1f}ms (video: {video_duration_sec*1000:.0f}ms)")
+        # print(f"  V2CE FPS: {optimal_fps} (video fps: {actual_video_fps})")
+        # print(f"  Expected time span: {expected_v2ce_duration:.1f}ms (video: {video_duration_sec*1000:.0f}ms)")
         
         return int(optimal_fps)
 
@@ -766,13 +766,13 @@ class IEBCSFlareEventGenerator:
         
         try:
             # Step 1: Generate flickering flare video
-            print("Step 1: Generating flickering flare video for IEBCS...")
+            # print("Step 1: Generating flickering flare video for IEBCS...")
             step1_start = time.time()
             
             # 计算更高的帧率以改善频闪采样 (直接修改配置)
             original_fps = self.config['data']['flare_synthesis']['max_fps']
             dynamic_fps = self._calculate_dynamic_fps_for_iebcs()
-            print(f"  Using dynamic FPS: {dynamic_fps} (original: {original_fps}) for better flicker sampling")
+            # print(f"  Using dynamic FPS: {dynamic_fps} (original: {original_fps}) for better flicker sampling")
             
             # 临时修改配置中的FPS
             self.config['data']['flare_synthesis']['max_fps'] = dynamic_fps
@@ -785,10 +785,10 @@ class IEBCSFlareEventGenerator:
             self.config['data']['flare_synthesis']['max_fps'] = original_fps
             
             timing_info['flare_synthesis_sec'] = time.time() - step1_start
-            print(f"  Generated {len(video_frames)} frames in {timing_info['flare_synthesis_sec']:.3f}s")
+            # print(f"  Generated {len(video_frames)} frames in {timing_info['flare_synthesis_sec']:.3f}s")
             
             # Step 2: Initialize IEBCS sensor
-            print("Step 2: Initializing IEBCS sensor...")
+            # print("Step 2: Initializing IEBCS sensor...")
             step2_start = time.time()
             
             sensor = DvsSensor("IEBCSSensor")
@@ -812,15 +812,16 @@ class IEBCSFlareEventGenerator:
                 noise_neg_path = os.path.join(self.simulator_path, self.noise_config['noise_neg_file'])
                 if os.path.exists(noise_pos_path) and os.path.exists(noise_neg_path):
                     sensor.init_bgn_hist(noise_pos_path, noise_neg_path)
-                    print("  Using measured noise distributions")
+                    # print("  Using measured noise distributions")
                 else:
-                    print("  Warning: Measured noise files not found, using default noise model")
+                    # print("  Warning: Measured noise files not found, using default noise model")
+                    pass
             
             timing_info['sensor_init_sec'] = time.time() - step2_start
-            print(f"  IEBCS sensor initialized in {timing_info['sensor_init_sec']:.3f}s")
+            # print(f"  IEBCS sensor initialized in {timing_info['sensor_init_sec']:.3f}s")
             
             # Step 3: Process video frames through IEBCS
-            print("Step 3: Processing frames through IEBCS...")
+            # print("Step 3: Processing frames through IEBCS...")
             step3_start = time.time()
             
             events_list = []
@@ -841,10 +842,10 @@ class IEBCSFlareEventGenerator:
                     events_list.extend(frame_events)
             
             timing_info['iebcs_processing_sec'] = time.time() - step3_start
-            print(f"  Processed {len(video_frames)} frames in {timing_info['iebcs_processing_sec']:.3f}s")
+            # print(f"  Processed {len(video_frames)} frames in {timing_info['iebcs_processing_sec']:.3f}s")
             
             # Step 4: Convert to numpy array
-            print("Step 4: Converting events to array...")
+            # print("Step 4: Converting events to array...")
             step4_start = time.time()
             
             if events_list:
@@ -857,19 +858,19 @@ class IEBCSFlareEventGenerator:
                 print("  Warning: No events generated!")
             
             timing_info['array_conversion_sec'] = time.time() - step4_start
-            print(f"  Generated {len(events_array)} events in {timing_info['array_conversion_sec']:.3f}s")
+            # print(f"  Generated {len(events_array)} events in {timing_info['array_conversion_sec']:.3f}s")
             
             # Step 5: Debug visualization with IEBCS suffix (only in debug mode)
             if self.debug_mode:
-                print("Step 5: Saving debug visualizations (IEBCS)...")
+                # print("Step 5: Saving debug visualizations (IEBCS)...")
                 step5_start = time.time()
                 
                 self._save_debug_visualizations_iebcs(video_frames, events_array, flare_metadata)
                 
                 timing_info['debug_visualization_sec'] = time.time() - step5_start
-                print(f"  Debug visualization saved in {timing_info['debug_visualization_sec']:.3f}s")
+                # print(f"  Debug visualization saved in {timing_info['debug_visualization_sec']:.3f}s")
             else:
-                print("Step 5: Skipping debug visualization (debug mode disabled)")
+                # print("Step 5: Skipping debug visualization (debug mode disabled)")
                 timing_info['debug_visualization_sec'] = 0.0
             
             timing_info['total_pipeline_sec'] = time.time() - total_start
@@ -947,7 +948,7 @@ class IEBCSFlareEventGenerator:
         else:
             optimal_fps = ideal_fps
         
-        print(f"  IEBCS FPS calculation: ideal={ideal_fps:.0f}, final={optimal_fps:.0f}")
+        # print(f"  IEBCS FPS calculation: ideal={ideal_fps:.0f}, final={optimal_fps:.0f}")
         return int(optimal_fps)
     
     def _save_debug_visualizations_iebcs(self, video_frames: List[np.ndarray], 
@@ -1002,7 +1003,7 @@ class IEBCSFlareEventGenerator:
                 f.write("  Single timewindow mode\n")
         
         self.debug_counter += 1
-        print(f"  💾 Debug data saved to: {debug_sequence_dir}")
+        # print(f"  💾 Debug data saved to: {debug_sequence_dir}")
     
     def _create_multi_timewindow_visualizations_iebcs(self, events_array: np.ndarray, 
                                                      events_dir: str, num_frames: int):
@@ -1010,7 +1011,7 @@ class IEBCSFlareEventGenerator:
         time_window_scales = self.debug_viz_config['time_window_scales']
         temporal_subdivisions = self.debug_viz_config['temporal_subdivisions']
         
-        print(f"  Creating multi-timewindow visualizations: {time_window_scales}x time windows")
+        # print(f"  Creating multi-timewindow visualizations: {time_window_scales}x time windows")
         
         # 为每个时间窗口创建子文件夹 (模仿DVS结构)
         for scale in time_window_scales:
@@ -1192,7 +1193,7 @@ class DVSFlareEventGenerator:
             
         try:
             # Step 1: Generate flickering flare video
-            print("Step 1: Generating flickering flare video...")
+            # print("Step 1: Generating flickering flare video...")
             step1_start = time.time()
             
             video_frames, flare_metadata = self.flare_synthesizer.create_flare_event_sequence(
@@ -1200,35 +1201,35 @@ class DVSFlareEventGenerator:
             )
             
             timing_info['flare_synthesis_sec'] = time.time() - step1_start
-            print(f"  Generated {len(video_frames)} frames in {timing_info['flare_synthesis_sec']:.3f}s")
+            # print(f"  Generated {len(video_frames)} frames in {timing_info['flare_synthesis_sec']:.3f}s")
             
             # Step 2: Save video frames for DVS simulator
-            print("Step 2: Saving video frames for DVS simulator...")
+            # print("Step 2: Saving video frames for DVS simulator...")
             step2_start = time.time()
             
             sequence_dir = self._save_video_for_dvs_simulator(video_frames, temp_dir, flare_metadata)
             
             timing_info['frame_saving_sec'] = time.time() - step2_start
-            print(f"  Saved frames in {timing_info['frame_saving_sec']:.3f}s")
+            # print(f"  Saved frames in {timing_info['frame_saving_sec']:.3f}s")
             
             # Step 3: Run DVS simulator
-            print("Step 3: Running DVS simulator...")
+            # print("Step 3: Running DVS simulator...")
             step3_start = time.time()
             
             events_array = self._run_dvs_simulator(temp_dir)
             
             timing_info['dvs_simulation_sec'] = time.time() - step3_start
-            print(f"  Generated {len(events_array)} events in {timing_info['dvs_simulation_sec']:.3f}s")
+            # print(f"  Generated {len(events_array)} events in {timing_info['dvs_simulation_sec']:.3f}s")
             
             # Step 4: Debug mode - save image sequences and event visualizations
             if self.debug_mode:
-                print("Step 4: Saving debug visualizations...")
+                # print("Step 4: Saving debug visualizations...")
                 step4_start = time.time()
                 
                 self._save_debug_visualizations(video_frames, events_array, flare_metadata)
                 
                 timing_info['debug_visualization_sec'] = time.time() - step4_start
-                print(f"  Saved debug visualizations in {timing_info['debug_visualization_sec']:.3f}s")
+                # print(f"  Saved debug visualizations in {timing_info['debug_visualization_sec']:.3f}s")
             
             # Combine metadata
             timing_info.update(flare_metadata)
@@ -1373,7 +1374,7 @@ class DVSFlareEventGenerator:
         # 🎯 新增：调整DVS参数以减少事件数量，支持k1随机化
         dvs_params = self.config['data']['event_simulator']['dvs_voltmeter'].get('parameters', {})
         if dvs_params:
-            print(f"  Applying custom DVS parameters: {dvs_params}")
+            # print(f"  Applying custom DVS parameters: {dvs_params}")
             
             # 检测相机类型并应用对应参数
             if 'DVS346' in modified_content:
@@ -1391,7 +1392,7 @@ class DVSFlareEventGenerator:
                         f"__C.SENSOR.K = {k_str}",
                         modified_content
                     )
-                    print(f"  DVS346 K parameters (k1 randomized): {k_values}")
+                    # print(f"  DVS346 K parameters (k1 randomized): {k_values}")
             
             elif 'DVS240' in modified_content:
                 if 'dvs240_k' in dvs_params:
@@ -1402,9 +1403,10 @@ class DVSFlareEventGenerator:
                         f"__C.SENSOR.K = {k_str}",
                         modified_content
                     )  
-                    print(f"  DVS240 K parameters: {k_values}")
+                    # print(f"  DVS240 K parameters: {k_values}")
         else:
-            print("  Using default DVS parameters")
+            # print("  Using default DVS parameters")
+            pass
         
         # Write modified config
         with open(config_path, 'w') as f:
@@ -1455,7 +1457,7 @@ class DVSFlareEventGenerator:
         os.makedirs(sequence_debug_dir, exist_ok=True)
         self.debug_counter += 1
         
-        print(f"  Saving to: {sequence_debug_dir}")
+        # print(f"  Saving to: {sequence_debug_dir}")
         
         # 1. Save original flare image sequence
         frames_dir = os.path.join(sequence_debug_dir, "original_frames")
@@ -1515,8 +1517,8 @@ class DVSFlareEventGenerator:
             if not isinstance(subdivision_strategies, list):
                 subdivision_strategies = [subdivision_strategies]  # Backward compatibility
             
-            print(f"  Creating multi-resolution event visualizations: {subdivision_strategies}x")
-            print(f"  Frame duration: {frame_duration_us}μs")
+            # print(f"  Creating multi-resolution event visualizations: {subdivision_strategies}x")
+            # print(f"  Frame duration: {frame_duration_us}μs")
             
             # Process each subdivision strategy
             for strategy in subdivision_strategies:
@@ -1526,7 +1528,7 @@ class DVSFlareEventGenerator:
                 if strategy == 0.5:
                     # 0.5x: Two frames share one event window (longer duration)
                     subdivision_duration_us = frame_duration_us * 2
-                    print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (2 frames → 1 event window)")
+                    # print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (2 frames → 1 event window)")
                     
                     # Process pairs of frames
                     for frame_idx in range(0, len(video_frames), 2):
@@ -1556,7 +1558,7 @@ class DVSFlareEventGenerator:
                 elif strategy == 1:
                     # 1x: One frame = one event window
                     subdivision_duration_us = frame_duration_us
-                    print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (1 frame → 1 event window)")
+                    # print(f"    {strategy}x: {subdivision_duration_us}μs per visualization (1 frame → 1 event window)")
                     
                     for frame_idx in range(len(video_frames)):
                         frame_start_time = frame_idx * frame_duration_us
@@ -1583,7 +1585,7 @@ class DVSFlareEventGenerator:
                     # 2x, 4x: Multiple subdivisions per frame
                     num_subdivisions = int(strategy)
                     subdivision_duration_us = frame_duration_us // num_subdivisions
-                    print(f"    {strategy}x: {subdivision_duration_us}μs per visualization ({num_subdivisions} subdivisions per frame)")
+                    # print(f"    {strategy}x: {subdivision_duration_us}μs per visualization ({num_subdivisions} subdivisions per frame)")
                     
                     for frame_idx in range(len(video_frames)):
                         frame_start_time = frame_idx * frame_duration_us
@@ -1627,7 +1629,7 @@ class DVSFlareEventGenerator:
         if 'movement_distance_pixels' in metadata and metadata['movement_distance_pixels'] > 1.0:
             self._save_movement_trajectory_visualization(sequence_debug_dir, video_frames, metadata)
         
-        print(f"  Saved {len(video_frames)} original frames and {total_visualizations} multi-resolution event visualizations")
+        # print(f"  Saved {len(video_frames)} original frames and {total_visualizations} multi-resolution event visualizations")
     
     def _render_events_on_image(self, image: np.ndarray, x: np.ndarray, 
                               y: np.ndarray, p: np.ndarray) -> np.ndarray:
@@ -1736,7 +1738,7 @@ class DVSFlareEventGenerator:
             f.write(f"Frames analyzed: {num_frames}\n")
             f.write(f"Movement per frame: {distance/max(1, num_frames-1):.2f} pixels\n")
         
-        print(f"    Saved movement trajectory visualization: {distance:.1f}px in {duration:.3f}s")
+        # print(f"    Saved movement trajectory visualization: {distance:.1f}px in {duration:.3f}s")
     
     def restore_simulator_config(self):
         """Restore original DVS simulator configuration."""
@@ -1769,20 +1771,20 @@ def test_dvs_flare_integration(config_path: str = "configs/config.yaml"):
         print(f"Results:")
         print(f"  Generated events: {len(events)}")
         if len(events) > 0:
-            print(f"  Time range: {events[0, 0]} - {events[-1, 0]} μs")
-            print(f"  Duration: {(events[-1, 0] - events[0, 0]) / 1000:.1f} ms")
-            print(f"  Event rate: {len(events) / ((events[-1, 0] - events[0, 0]) / 1e6):.1f} events/s")
+            # print(f"  Time range: {events[0, 0]} - {events[-1, 0]} μs")
+            # print(f"  Duration: {(events[-1, 0] - events[0, 0]) / 1000:.1f} ms")
+            # print(f"  Event rate: {len(events) / ((events[-1, 0] - events[0, 0]) / 1e6):.1f} events/s")
             
             # Analyze polarity distribution
             pos_events = np.sum(events[:, 3] == 1)
             neg_events = np.sum(events[:, 3] == 0)
-            print(f"  Polarity: {pos_events} ON ({pos_events/len(events)*100:.1f}%), "
-                  f"{neg_events} OFF ({neg_events/len(events)*100:.1f}%)")
+            # print(f"  Polarity: {pos_events} ON ({pos_events/len(events)*100:.1f}%), {neg_events} OFF ({neg_events/len(events)*100:.1f}%)")
         
-        print(f"\nTiming breakdown:")
+        # print(f"\nTiming breakdown:")
         for key, value in timing_info.items():
             if key.endswith('_sec'):
-                print(f"  {key}: {value:.3f}s")
+                pass
+                # print(f"  {key}: {value:.3f}s")
         
         return events, timing_info
         
@@ -1850,25 +1852,25 @@ def test_event_simulator_integration(config_path: str = "configs/config.yaml"):
         print(f"  Simulator: {timing_info.get('simulator_type', simulator_type)}")
         print(f"  Generated events: {len(events)}")
         if len(events) > 0:
-            print(f"  Time range: {events[0, 0]} - {events[-1, 0]} μs")
-            print(f"  Duration: {(events[-1, 0] - events[0, 0]) / 1000:.1f} ms")
-            print(f"  Event rate: {len(events) / ((events[-1, 0] - events[0, 0]) / 1e6):.1f} events/s")
+            # print(f"  Time range: {events[0, 0]} - {events[-1, 0]} μs")
+            # print(f"  Duration: {(events[-1, 0] - events[0, 0]) / 1000:.1f} ms")
+            # print(f"  Event rate: {len(events) / ((events[-1, 0] - events[0, 0]) / 1e6):.1f} events/s")
             
             # Analyze polarity distribution
             pos_events = np.sum(events[:, 3] == 1) + np.sum(events[:, 3] > 0)
             neg_events = len(events) - pos_events
-            print(f"  Polarity: {pos_events} ON ({pos_events/len(events)*100:.1f}%), "
-                  f"{neg_events} OFF ({neg_events/len(events)*100:.1f}%)")
+            # print(f"  Polarity: {pos_events} ON ({pos_events/len(events)*100:.1f}%), {neg_events} OFF ({neg_events/len(events)*100:.1f}%)")
             
             # Spatial analysis
             x_range = f"[{events[:, 1].min()}, {events[:, 1].max()}]"
             y_range = f"[{events[:, 2].min()}, {events[:, 2].max()}]"
-            print(f"  Spatial range: x={x_range}, y={y_range}")
+            # print(f"  Spatial range: x={x_range}, y={y_range}")
         
-        print(f"\nTiming breakdown:")
+        # print(f"\nTiming breakdown:")
         for key, value in timing_info.items():
             if key.endswith('_sec'):
-                print(f"  {key}: {value:.3f}s")
+                pass
+                # print(f"  {key}: {value:.3f}s")
         
         return events, timing_info
         
