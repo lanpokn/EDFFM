@@ -204,7 +204,7 @@ class FlareFlickeringSynthesizer:
             # 非闪烁模式：使用恒定强度
             constant_intensity = random.uniform(0.7, 1.0)  # 较高的恒定强度
             curve = np.full(num_frames, constant_intensity)
-            print(f"  Generated non-flickering curve: constant intensity={constant_intensity:.2f} (movement-only)")
+            # print(f"  Generated non-flickering curve: constant intensity={constant_intensity:.2f} (movement-only)")
             return curve
         
         # 原有闪烁逻辑
