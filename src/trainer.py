@@ -74,6 +74,11 @@ class Trainer:
                 # chunk_labels: [L]
                 loss = self.criterion(predictions.squeeze(), chunk_labels.float())
                 loss.backward()
+                
+                # ### BEGIN RISK MITIGATION 3: GRADIENT CLIPPING ###
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                # ### END RISK MITIGATION 3 ###
+                
                 self.optimizer.step()
 
                 # 全局步数是唯一的时间戳

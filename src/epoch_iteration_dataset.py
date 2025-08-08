@@ -71,8 +71,7 @@ class EpochIterationDataset(Dataset):
         else:  # test
             self.num_long_sequences_per_epoch = config['evaluation'].get('num_long_sequences_per_epoch', 20)
             
-        # Keep sequence_length for backward compatibility with debug system
-        self.sequence_length = config['data'].get('sequence_length', 64)
+        # 🚨 REMOVED: sequence_length已从config中删除，长序列长度现在是动态的
         
         # Background duration from config
         bg_range = config['data']['randomized_training']['background_duration_range']
