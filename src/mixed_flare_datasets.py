@@ -499,7 +499,7 @@ class MixedFlareDataset(Dataset):
                     return cached_events.copy()  # Return copy to avoid modification
             
             # Generate new flare events using DVS simulation
-            flare_events, metadata = self.flare_generator.generate_flare_events(cleanup=True)
+            flare_events, metadata, _ = self.flare_generator.generate_flare_events(cleanup=True)
             
             # 安全检查: 确保生成的事件不为空
             if len(flare_events) == 0:

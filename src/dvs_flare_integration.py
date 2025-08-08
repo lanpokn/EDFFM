@@ -125,7 +125,7 @@ class V2CEFlareEventGenerator:
         return self._v2ce_model
     
     def generate_flare_events(self, temp_dir: Optional[str] = None, 
-                            cleanup: bool = True) -> Tuple[np.ndarray, Dict]:
+                            cleanup: bool = True) -> Tuple[np.ndarray, Dict, List[np.ndarray]]:
         """Generate flare events using V2CE pipeline.
         
         Args:
@@ -133,7 +133,7 @@ class V2CEFlareEventGenerator:
             cleanup: Whether to cleanup temporary files
             
         Returns:
-            Tuple of (events_array, timing_info)
+            Tuple of (events_array, timing_info, video_frames)
             Events format: [timestamp_us, x, y, polarity]
         """
         timing_info = {}
@@ -205,7 +205,7 @@ class V2CEFlareEventGenerator:
             timing_info['total_pipeline_sec'] = time.time() - total_start
             timing_info['simulator_type'] = 'V2CE'
             
-            return events_array, timing_info
+            return events_array, timing_info, video_frames
             
         finally:
             # Cleanup temporary directory if requested
@@ -745,7 +745,7 @@ class IEBCSFlareEventGenerator:
         return self._iebcs_modules
     
     def generate_flare_events(self, temp_dir: Optional[str] = None, 
-                            cleanup: bool = True) -> Tuple[np.ndarray, Dict]:
+                            cleanup: bool = True) -> Tuple[np.ndarray, Dict, List[np.ndarray]]:
         """Generate flare events using IEBCS pipeline.
         
         Args:
@@ -753,7 +753,7 @@ class IEBCSFlareEventGenerator:
             cleanup: Whether to cleanup temporary files
             
         Returns:
-            Tuple of (events_array, timing_info)
+            Tuple of (events_array, timing_info, video_frames)
             Events format: [timestamp_us, x, y, polarity]
         """
         timing_info = {}
@@ -880,7 +880,7 @@ class IEBCSFlareEventGenerator:
                 event_density = len(events_array) / (timing_info['total_pipeline_sec'] * 1000)
                 print(f"   Event density: {event_density:.0f} events/ms")
             
-            return events_array, timing_info
+            return events_array, timing_info, video_frames
             
         except Exception as e:
             print(f"❌ IEBCS pipeline failed: {e}")
@@ -1168,7 +1168,7 @@ class DVSFlareEventGenerator:
             print(f"🚨 DEBUG MODE (DVS): Will save flare sequences to {self.debug_save_dir}")
         
     def generate_flare_events(self, temp_dir: Optional[str] = None, 
-                            cleanup: bool = True) -> Tuple[np.ndarray, Dict]:
+                            cleanup: bool = True) -> Tuple[np.ndarray, Dict, List[np.ndarray]]:
         """Generate flare events using the complete pipeline.
         
         Args:
@@ -1176,8 +1176,9 @@ class DVSFlareEventGenerator:
             cleanup: Whether to cleanup temporary files
             
         Returns:
-            Tuple of (events_array, timing_info)
+            Tuple of (events_array, timing_info, video_frames)
             Events format: [timestamp_us, x, y, polarity]
+            video_frames: List of original flare sequence frames for debug visualization
         """
         timing_info = {}
         total_start = time.time()
@@ -1233,7 +1234,7 @@ class DVSFlareEventGenerator:
             timing_info.update(flare_metadata)
             timing_info['total_pipeline_sec'] = time.time() - total_start
             
-            return events_array, timing_info
+            return events_array, timing_info, video_frames
             
         finally:
             # Cleanup temporary directory if requested
@@ -1757,7 +1758,7 @@ def test_dvs_flare_integration(config_path: str = "configs/config.yaml"):
     
     try:
         # Generate flare events
-        events, timing_info = generator.generate_flare_events()
+        events, timing_info, video_frames = generator.generate_flare_events()
         
         print(f"Results:")
         print(f"  Generated events: {len(events)}")
@@ -1837,7 +1838,7 @@ def test_event_simulator_integration(config_path: str = "configs/config.yaml"):
     
     try:
         # Generate flare events
-        events, timing_info = generator.generate_flare_events()
+        events, timing_info, video_frames = generator.generate_flare_events()
         
         print(f"\nResults:")
         print(f"  Simulator: {timing_info.get('simulator_type', simulator_type)}")

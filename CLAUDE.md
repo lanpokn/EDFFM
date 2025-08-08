@@ -187,22 +187,39 @@ data:
 - **Classification**: Binary output for flare removal
 - **Total Parameters**: 271,489 (reduced from 271,745)
 
-## PFD Features (11-Dimensional) - 优化后定义
-**🚨 CRITICAL CHANGE**: 删除累积计数特征，仅保留原始PFD局部特征，避免泛化问题
+## 🎯 **当前焦点：特征提取器性能优化** (基于PFDs.cpp)
 
-| 维度 | 特征名称 | 物理含义 | 取值范围 | PFD关联 |
-|------|----------|----------|----------|---------|
-| 0-1 | x_center, y_center | 中心相对坐标 | [-1, 1] | ❌ 传统特征 |
-| 2 | polarity | 事件极性 | {-1, 1} | ✅ PFD核心 |
-| 3-4 | dt_norm, dt_pixel_norm | 对数时间间隔 | [0, 15] | ❌ 传统特征 |
-| **5** | **Mf** | **极性频率 (时间窗口内)** | [0, 100] | ✅ **PFD核心** |
-| **6** | **Ma** | **邻域极性变化总数** | [0, 100] | ✅ **PFD核心** |
-| **7** | **Ne** | **活跃邻居像素数** | [0, 8] | ✅ **PFD核心** |
-| **8** | **D** | **极性变化密度 Ma/Ne** | [0, 10] | ✅ **PFD核心** |
-| **9** | **PFD-A评分** | **BA噪声检测 \|Mf-D\|** | [0, 100] | ✅ **PFD直接输出** |
-| **10** | **PFD-B评分** | **频闪噪声检测 D** | [0, 10] | ✅ **PFD直接输出** |
+### **特征提取性能问题现状** (2025-08-03)
+- **原始问题**: O(N²)复杂度导致586万事件需要325秒处理
+- **根本原因**: recent_events列表管理 + 重复搜索历史事件
+- **目标性能**: 基于PFDs.cpp实现，应达到O(N)复杂度，~6秒处理时间
 
-**PFD特征占比**: 6/11 (54.5%) 为纯PFD特征，**删除了累积计数特征以避免训练→测试泛化问题**
+### **正确的11维PFD特征设计** (修正版)
+#### ✅ **完整11维特征向量 (编号0-10)**：
+| 维度 | 特征名称 | 物理含义 | 有效性 |
+|------|----------|----------|--------|
+| 0 | x_center | 归一化x坐标 | ✅ 局部空间特征 |
+| 1 | y_center | 归一化y坐标 | ✅ 局部空间特征 |
+| 2 | polarity | 事件极性 | ✅ PFD核心特征 |
+| 3 | **dt_norm** | **相邻事件时间间隔** | ✅ **局部时序特征 (非全局!)** |
+| 4 | **dt_pixel** | **像素级事件间隔** | ✅ **局部空间特征** |
+| 5 | **Mf** | **像素极性频率** | ✅ **PFD核心 (时间窗口内)** |
+| 6 | **Ma** | **邻域极性变化数** | ✅ **PFD核心 (时间窗口内)** |
+| 7 | **Ne** | **活跃邻居数** | ✅ **PFD核心 (时间窗口内)** |
+| 8 | **D** | **极性变化密度** | ✅ **PFD核心 (Ma/Ne)** |
+| 9 | **PFD-A** | **BA噪声检测评分** | ✅ **PFD输出 \|Mf-D\|** |
+| 10 | **PFD-B** | **频闪检测评分** | ✅ **PFD输出 D** |
+
+**总计**: 11维特征 (0-10)，其中6个为纯PFD特征
+
+#### ❌ **真正有问题的特征 (需避免)**：
+- **全局累积计数**: 会随处理时间无限增长的特征
+- **会话级状态**: 依赖整个处理会话历史的特征
+
+### **关键洞察修正**：
+- **dt_norm不是全局特征**: 它只是相邻事件的时间差，完全局部
+- **所有时间特征都有界**: 事件相机物理限制确保合理范围
+- **问题在实现而非设计**: PFDs.cpp证明O(N)复杂度可行
 
 ## Running the Project
 ### Training:
@@ -217,41 +234,47 @@ python main.py --config configs/config.yaml
 python main.py --config configs/config.yaml --debug
 ```
 
-**Debug Mode功能** (2025-08-02 完整升级):
-- **🚨 TIMING REQUIREMENT**: main.py debug模式需要**300+秒**完成DVS仿真和epoch生成
-- **🎯 炫光序列可视化**: DVS仿真器生成的完整炫光事件序列
-  - 原始炫光图像帧保存到 `output/debug_visualizations/flare_seq_XXX/original_frames/`
-  - 多时间分辨率事件可视化: 0.5x/1x/2x/4x temporal窗口
-  - **真实炫光结构**: 显示放射状光线、几何结构(非噪声)
-  - 事件颜色: 负极性=蓝色，正极性=红色
-  - 详细元数据: 帧数、事件数、频率、极性分布、运动轨迹等
+**Debug Mode功能** (2025-08-04 完全修复):
+- **🚨 TIMING REQUIREMENT**: main.py debug模式需要**180+秒**完成DVS仿真和epoch生成
+- **✅ 炫光序列原始帧**: 完整的炫光图像序列
+  - 原始炫光图像帧保存到 `output/debug_epoch_000/flare_sequence_frames/`
+  - 131个RGB图像帧 (frame_000.png - frame_130.png)
+  - **展示完整炫光运动和闪烁过程** - 直接用于PPT/视频展示
+  - 来自DVS仿真器输入的真实炫光图像序列
 
-- **🔍 统一事件可视化系统** (2025-08-02 VERIFIED): 
-  - **理想输出结构**: `output/debug_epoch_XXX/` (clean, organized)
-  - **background_events/**: DSEC背景事件 (红/蓝)
-  - **flare_events/**: DVS炫光事件 (黄/橙)  
+- **✅ 完整事件可视化系统** (2025-08-04 全部修复): 
+  - **最终输出结构**: `output/debug_epoch_000/` (统一、完整)
+  - **background_events/**: DSEC背景事件 (126,172个事件)
+  - **flare_events/**: DVS炫光事件 (1,031,034个事件) ✅ 已修复  
   - **merged_events/**: 合并训练序列 (智能颜色区分)
   - **epoch_metadata.txt**: 完整统计信息
   - **多分辨率**: 每种事件类型都有 0.5x/1x/2x/4x temporal窗口
   - **⚠️ 注意**: 需完整epoch生成才触发，DVS仿真时间较长
 
-**输出结构** (完整三层可视化):
+**输出结构** (2025-08-04 最终版本):
 ```
-output/debug_visualizations/
-├── flare_seq_000/                    # DVS炫光可视化
-│   ├── original_frames/              # 炫光图像序列  
-│   ├── event_visualizations/         # 多分辨率事件叠加
-│   └── metadata.txt                  # 炫光统计信息
-├── epoch_000/                        # Epoch级事件可视化
-│   ├── background_events/            # 背景事件(黑底)
-│   │   ├── temporal_0.5x/           # 低频采样可视化
-│   │   ├── temporal_1x/             # 标准采样
-│   │   ├── temporal_2x/             # 高频采样  
-│   │   └── temporal_4x/             # 超高频采样
-│   ├── merged_events/               # 合并事件(智能着色)
-│   │   └── [same structure]
-│   └── epoch_metadata.txt          # 完整Epoch统计
-└── epoch_iteration_analysis/        # 传统分析可视化
+output/debug_epoch_000/              # 统一debug输出目录
+├── background_events/               # DSEC背景事件可视化
+│   ├── temporal_0.5x/              # 多分辨率时间窗口
+│   ├── temporal_1x/
+│   ├── temporal_2x/
+│   └── temporal_4x/
+├── flare_events/                    # ✅ DVS炫光事件可视化
+│   ├── temporal_0.5x/              # 1,031,034个炫光事件
+│   ├── temporal_1x/
+│   ├── temporal_2x/
+│   └── temporal_4x/
+├── merged_events/                   # 合并训练序列可视化
+│   ├── temporal_0.5x/              # 1,157,206个总事件
+│   ├── temporal_1x/
+│   ├── temporal_2x/
+│   └── temporal_4x/
+├── flare_sequence_frames/           # ✅ 新增：炫光序列原始帧
+│   ├── frame_000.png               # 131个炫光图像帧
+│   ├── frame_001.png               # 展示炫光的运动和闪烁
+│   ├── ...
+│   └── frame_130.png
+└── epoch_metadata.txt              # 完整统计信息
 ```
 
 **Debug配置优化** (快速测试):
@@ -296,28 +319,33 @@ python test_features.py
 - **✅ THREE-WAY DEBUG VISUALIZATION**: Background, flare, and merged events all visualized
 
 ### 🚨 DEBUG TASK LIST (Known Issues to Address)
-**Performance & Optimization**:
-1. **⚠️ Feature Extractor Hanging**: `feature_extractor.process_sequence()` causes long hangs/timeouts
-   - Location: `src/epoch_iteration_dataset.py:155`
-   - Symptom: 5+ minute execution times for large event sequences
-   - Impact: Blocks debug mode testing and training efficiency
-   - Priority: HIGH - affects core training pipeline
-
-2. **⚠️ Flare Events Visualization Issue**: `debug_epoch_000/flare_events/` shows only edge artifacts
-   - Problem: Flare events display as vertical stripes on right edge, not full flare patterns
-   - Expected: Complete flare shapes like yellow regions in merged_events visualization  
-   - Observed: Only edge artifacts visible, missing main flare content
-   - Suspected cause: Coordinate transformation or time window splitting issues in flare event processing
-   - Priority: MEDIUM-HIGH - affects debugging and flare quality validation
-
 **Verification Tasks**:
-3. **📊 Timestamp Verification**: Confirm timestamp normalization across all edge cases
-4. **🔍 Memory Usage Monitoring**: Track memory usage during long training runs  
-5. **🎯 PFD Feature Quality**: Validate 11D PFD features are physically meaningful after timestamp fixes
+1. **📊 Timestamp Verification**: Confirm timestamp normalization across all edge cases
+2. **🔍 Memory Usage Monitoring**: Track memory usage during long training runs
+
+### ✅ RESOLVED ISSUES (2025-08-03)
+- **🎯 Flare Events Visualization Issue**: ✅ FIXED - `debug_epoch_000/flare_events/` now displays complete flare patterns
+  - Root cause: DVS format `[t,x,y,p]` vs project format `[x,y,t,p]` conversion missing in visualization
+  - Solution: Added `_format_flare_events()` call in `_save_unified_debug_visualizations()`
+  - Verification: flare_events files now ~20KB (vs previous small files), showing full flare shapes
+  - Side benefit: Eliminated duplicate `flare_seq_*` outputs, unified to `debug_epoch_000`
+
+### ⚡ **当前进行中：特征提取器重构** (2025-08-03)
+- **现状**: 正在基于PFDs.cpp重写特征提取器，目标O(N)复杂度
+- **🚨 当前特征提取器存在的bugs**:
+  1. **维度错误**: 目前实现为6D或10D，应为11D (编号0-10)
+  2. **性能问题**: O(N²)复杂度，recent_events列表管理低效
+  3. **特征计算错误**: 部分PFD特征计算逻辑与PFDs.cpp不匹配
+  4. **时间窗口管理**: 缺乏高效的固定大小循环缓冲区
+- **已尝试方案**:
+  1. 错误的10D PFD特征 → 处理速度25K events/s (仍需233秒处理586万事件)
+  2. 简化6D特征 → 处理速度63K events/s (需93秒处理586万事件)
+- **目标**: 实现正确的11D特征 + 达到PFDs.cpp性能标准 (~6秒处理586万事件)
+- **下一步**: 修复特征维度为11D，完善PFD算法实现，可能需要Cython优化
 
 ### ⚠️ Minor Notes
-- **Debug Directory**: Located at `output/debug_visualizations/flare_seq_xxx/`
-- **Visualization Types**: Original frames, multi-resolution events, movement trajectories  
+- **Debug Directory**: Located at `output/debug_epoch_000/` (unified system)
+- **Visualization Types**: Background, flare, and merged events with multi-resolution temporal windows
 - **Data Diversity**: Using 5962 flare images from both Compound_Flare directories
 
 ### Dependency Status - ALL WORKING

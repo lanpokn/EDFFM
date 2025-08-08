@@ -254,18 +254,24 @@ class EpochIterationDataset(Dataset):
         
         try:
             # Generate flare events using DVS simulator
-            flare_events, metadata = self.flare_generator.generate_flare_events(cleanup=True)
+            flare_events, metadata, flare_video_frames = self.flare_generator.generate_flare_events(cleanup=True)
             
             # Handle empty generation
             if len(flare_events) == 0:
                 print(f"    Warning: DVS simulation generated no events (duration: {duration_ms:.1f}ms)")
+                self.current_flare_video_frames = []  # Set empty list for consistency
                 return np.empty((0, 4))
             
             print(f"    Flare events generated: {len(flare_events)} events, duration: {duration_ms:.1f}ms")
+            
+            # Store flare video frames for debug visualization
+            self.current_flare_video_frames = flare_video_frames
+            
             return flare_events
             
         except Exception as e:
             print(f"    Error in flare generation: {e}")
+            self.current_flare_video_frames = []  # Set empty list for consistency
             return np.empty((0, 4))
         finally:
             # Restore original config
@@ -471,7 +477,12 @@ class EpochIterationDataset(Dataset):
                     labels=labels
                 )
             
-            # 4. Save epoch metadata
+            # 4. Save flare sequence original frames (if available)
+            if hasattr(self, 'current_flare_video_frames') and self.current_flare_video_frames:
+                print(f"    🎬 Flare sequence: {len(self.current_flare_video_frames)} frames")
+                self._save_flare_sequence_frames(epoch_debug_dir, self.current_flare_video_frames)
+            
+            # 5. Save epoch metadata
             self._save_epoch_metadata(epoch_debug_dir, background_events, flare_events, merged_events, labels)
             
             print(f"    ✅ Unified debug visualizations saved to: {epoch_debug_dir}")
@@ -480,6 +491,24 @@ class EpochIterationDataset(Dataset):
             print(f"    ❌ Error saving unified debug visualizations: {e}")
             import traceback
             traceback.print_exc()
+
+    def _save_flare_sequence_frames(self, epoch_debug_dir: str, video_frames: List[np.ndarray]):
+        """Save original flare sequence frames to debug directory.
+        
+        Args:
+            epoch_debug_dir: Epoch debug directory
+            video_frames: List of RGB video frames from flare synthesis
+        """
+        frames_dir = os.path.join(epoch_debug_dir, "flare_sequence_frames")
+        os.makedirs(frames_dir, exist_ok=True)
+        
+        for i, frame in enumerate(video_frames):
+            frame_path = os.path.join(frames_dir, f"frame_{i:03d}.png")
+            # Convert RGB to BGR for OpenCV
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(frame_path, frame_bgr)
+        
+        print(f"      ✅ Saved {len(video_frames)} flare sequence frames to: {frames_dir}")
 
     def _create_event_sequence_visualization(self, events: np.ndarray, output_dir: str, 
                                            title: str, event_type: str = "background", 

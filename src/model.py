@@ -15,11 +15,11 @@ class EventDenoisingMamba(nn.Module):
         self.config = config
         model_config = config['model']
         
-        # ✅ 移除：特征提取器现在在数据集阶段处理，模型直接接收11维特征
+        # ✅ 移除：特征提取器现在在数据集阶段处理，模型直接接收10维特征
         # self.feature_extractor = FeatureExtractor(config)  # 不再需要
         
-        # 从特征提取器获取特征维度
-        input_feature_dim = model_config['input_feature_dim']  # 11维
+        # 从特征提取器获取特征维度 (updated to 10D)
+        input_feature_dim = model_config['input_feature_dim']  # 10维
         d_model = model_config['d_model']
         
         self.embedding = nn.Linear(input_feature_dim, d_model)

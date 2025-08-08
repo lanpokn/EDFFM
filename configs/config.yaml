@@ -163,8 +163,8 @@ data:
 
 # --- 模型架构设置 (Model Architecture Settings) ---
 model:
-  # 特征提取器输出的维度，同时也是Mamba嵌入层之前的输入维度 (优化为13维)
-  input_feature_dim: 11     
+  # 特征提取器输出的维度，同时也是Mamba嵌入层之前的输入维度 (简化为6维，性能优先)
+  input_feature_dim: 6     
   
   # Mamba 骨干网络参数 - 可根据显卡性能调整
   d_model: 128            # Mamba 内部的工作维度 (可调整: 64/128/256/512)
