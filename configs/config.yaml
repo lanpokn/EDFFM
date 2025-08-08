@@ -134,8 +134,8 @@ data:
     frequency_variation: 5.0             # ±5Hz随机变化
     
     # 动态帧率计算 (提高帧密度确保充分采样)
-    min_samples_per_cycle: 24            # 每个闪烁周期最少采样点数 (翻倍提高密度)
-    max_fps: 3000                        # 最大帧率限制 (大幅提高支持高密度采样)
+    min_samples_per_cycle: 48            # 每个闪烁周期最少采样点数 (再次翻倍：1s从2400→4800帧)
+    max_fps: 6000                        # 最大帧率限制 (翻倍支持更高密度采样)
     
     flicker_curves: ["sine", "square", "triangle", "exponential"]  # 闪烁曲线类型
     position_random: true                # 随机flare位置

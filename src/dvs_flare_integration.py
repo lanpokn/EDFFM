@@ -1382,7 +1382,7 @@ class DVSFlareEventGenerator:
                     
                     # 🎯 随机化k1参数 (光-电转换敏感度)
                     import random
-                    k1_min, k1_max = 0.5, 5.265  # k1随机范围
+                    k1_min, k1_max = 1.5, 5.265  # k1随机范围 (调高最低值避免过低敏感度)
                     k_values[0] = random.uniform(k1_min, k1_max)
                     
                     k_str = f"[{', '.join(map(str, k_values))}]"

@@ -197,6 +197,17 @@ class FlareFlickeringSynthesizer:
             Array of intensity multipliers over time with realistic baseline (length = duration * fps)
         """
         num_frames = int(duration * fps)
+        
+        # 🚨 新增：30%概率生成非闪烁炫光 (只移动不闪烁)
+        non_flicker_probability = 0.3
+        if random.random() < non_flicker_probability:
+            # 非闪烁模式：使用恒定强度
+            constant_intensity = random.uniform(0.7, 1.0)  # 较高的恒定强度
+            curve = np.full(num_frames, constant_intensity)
+            print(f"  Generated non-flickering curve: constant intensity={constant_intensity:.2f} (movement-only)")
+            return curve
+        
+        # 原有闪烁逻辑
         t = np.linspace(0, duration, num_frames)
         omega = 2 * np.pi * frequency
         
