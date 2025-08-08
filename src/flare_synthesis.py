@@ -245,7 +245,7 @@ class FlareFlickeringSynthesizer:
         # 🚨 修改：使用更大的随机移动范围，不依赖时长
         # 适应低分辨率场景，确保运动可见性
         min_distance_pixels = 0.0    # 可以完全不移动
-        max_distance_pixels = 60.0   # 最大移动60像素 (640x480分辨率的~10%)
+        max_distance_pixels = 180.0  # 最大移动180像素 (原60像素的3倍，~28%画面宽度)
         
         # 直接随机选择移动距离 (像素)
         total_distance_pixels = random.uniform(min_distance_pixels, max_distance_pixels)

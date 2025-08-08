@@ -15,9 +15,8 @@ data_pipeline:
   
 # --- 数据集设置 (Data Settings) ---
 data:
-  # DSEC数据集路径 (使用内存高效版本)
-  #/xxx/events/left/events.h5
-  dsec_path: "/mnt/e/2025/event_flick_flare/object_detection/dsec-det-master/data/train"
+  # 背景事件数据路径 (简化的H5文件目录)
+  dsec_path: "data/bg_events"
   
   # Flare7Kpp数据集路径 (Compound_Flare散射数据)
   # Flare7K/Scattering_Flare/Scattering_Flare and  Flare-R/Compound_Flare
@@ -45,8 +44,8 @@ data:
         # k5: 寄生光电流 (越小->亮度相关噪声越少->事件越少)
         # k6: 漏电流噪声 (越小->随机噪声越少->事件越少)
         #
-        # GitHub原始DVS参数 (真正的59K events/ms版本)
-        dvs346_k: [5.265, 20, 0.0001, 1e-7, 5e-9, 0.00001]  # 0.00018 * 29250 = 5.265
+        # 调低k1参数减少炫光事件强度 (从5.265调低到2.5)
+        dvs346_k: [2.5, 20, 0.0001, 1e-7, 5e-9, 0.00001]  # 降低k1光-电转换敏感度
         
         # DVS240参数 (GitHub原始)
         dvs240_k: [4.424, 23, 0.0002, 1e-7, 5e-8, 0.00001]  # 0.000094 * 47065 = 4.424

@@ -1370,7 +1370,7 @@ class DVSFlareEventGenerator:
             modified_content
         )
         
-        # 🎯 新增：调整DVS参数以减少事件数量
+        # 🎯 新增：调整DVS参数以减少事件数量，支持k1随机化
         dvs_params = self.config['data']['event_simulator']['dvs_voltmeter'].get('parameters', {})
         if dvs_params:
             print(f"  Applying custom DVS parameters: {dvs_params}")
@@ -1378,14 +1378,20 @@ class DVSFlareEventGenerator:
             # 检测相机类型并应用对应参数
             if 'DVS346' in modified_content:
                 if 'dvs346_k' in dvs_params:
-                    k_values = dvs_params['dvs346_k']
+                    k_values = dvs_params['dvs346_k'].copy()
+                    
+                    # 🎯 随机化k1参数 (光-电转换敏感度)
+                    import random
+                    k1_min, k1_max = 0.5, 5.265  # k1随机范围
+                    k_values[0] = random.uniform(k1_min, k1_max)
+                    
                     k_str = f"[{', '.join(map(str, k_values))}]"
                     modified_content = re.sub(
                         r"__C\.SENSOR\.K = \[.*?\]",
                         f"__C.SENSOR.K = {k_str}",
                         modified_content
                     )
-                    print(f"  DVS346 K parameters: {k_values}")
+                    print(f"  DVS346 K parameters (k1 randomized): {k_values}")
             
             elif 'DVS240' in modified_content:
                 if 'dvs240_k' in dvs_params:

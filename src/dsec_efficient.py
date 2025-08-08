@@ -21,14 +21,14 @@ class DSECEventDatasetEfficient(Dataset):
     """
 
     def __init__(self, dsec_path: str, flare_path: str, time_window_us: int = 1000000,
-                 camera_side: str = 'left', max_files: int = 5):
+                 camera_side: str = 'left', max_files: int = None):
         """
         Args:
-            dsec_path: Path to DSEC train folder
+            dsec_path: Path to background events directory (data/bg_events)
             flare_path: Path to flare events (currently unused)
             time_window_us: Time window in microseconds (1 second = 1000000)
-            camera_side: 'left' or 'right' camera
-            max_files: Maximum number of files to use
+            camera_side: 'left' or 'right' camera (not used for simple bg_events structure)
+            max_files: Maximum number of files to use (None = use all files)
         """
         self.dsec_path = dsec_path
         self.flare_path = flare_path
@@ -38,10 +38,13 @@ class DSECEventDatasetEfficient(Dataset):
 
         # Find all available H5 files
         self.h5_files = self._find_h5_files()
-        print(f"Found {len(self.h5_files)} DSEC event files, using first {min(len(self.h5_files), max_files)}")
-
-        # Limit files for memory safety
-        self.h5_files = self.h5_files[:max_files]
+        
+        if max_files is not None:
+            print(f"Found {len(self.h5_files)} background event files, using first {min(len(self.h5_files), max_files)}")
+            # Limit files for memory safety
+            self.h5_files = self.h5_files[:max_files]
+        else:
+            print(f"Found {len(self.h5_files)} background event files, using all files")
 
         # Pre-load lightweight metadata without loading full arrays
         self.file_metadata = self._load_file_metadata_efficient()
@@ -51,8 +54,8 @@ class DSECEventDatasetEfficient(Dataset):
         print(f"Total available 1-second windows: {self.total_windows}")
 
     def _find_h5_files(self) -> List[str]:
-        """Find all events.h5 files in DSEC dataset"""
-        pattern = os.path.join(self.dsec_path, f"*/events/{self.camera_side}/events.h5")
+        """Find all H5 files in background events directory"""
+        pattern = os.path.join(self.dsec_path, "*.h5")
         files = glob.glob(pattern)
         return sorted(files)
 
@@ -169,13 +172,13 @@ def create_dsec_dataloaders_efficient(config):
     Create efficient DSEC dataloaders that don't load entire files into memory
     """
     
-    # Create dataset with limited files for safety
+    # Create dataset with no file limit (use all files)
     train_dataset = DSECEventDatasetEfficient(
         dsec_path=config['data']['dsec_path'],
         flare_path=config['data']['flare_path'],
         time_window_us=config['data']['time_window_us'],
         camera_side='left',
-        max_files=3  # Start with just 3 files for safety
+        max_files=None  # Use all available files
     )
     
     # For validation and test, use same dataset but different sampling

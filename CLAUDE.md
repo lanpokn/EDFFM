@@ -78,28 +78,25 @@ Eq.(10): ΔVd = (k1/(L+k2))·kdL·Δt + (k3/(L+k2))·√L·W(Δt) + k4·Δt + k5
 - k6: 漏电流噪声 (随机噪声基础)
 ```
 
-### 优化策略与结果 (修正版 2025-07-31)
+### 优化策略与结果 (最新版 2025-08-08)
 ```yaml
 BEFORE (原始DVS346参数):
   dvs346_k: [1.0, 200, 0.001, 1e-8, 1e-9, 0.0001]
   事件密度: ~59,000 events/ms (过多)
 
-EXTREME BUG (错误参数):
-  dvs346_k: [2.5, 100, 0.01, 1e-7, 1e-8, 0.001]  
-  事件密度: 2.6 events/ms (过低！有Bug)
-
-FIXED (平衡优化参数):
-  dvs346_k: [3.0, 50, 0.01, 1e-7, 5e-9, 0.001]  
-  事件密度: 646-1618 events/ms (合理范围！)
+CURRENT (随机化优化参数):
+  dvs346_k: [random(0.5-5.265), 20, 0.0001, 1e-7, 5e-9, 1e-5]  
+  事件密度: 动态变化 (数据多样性增强)
+  k1随机化: 每次炫光生成使用不同敏感度
   
-优化效果: 36-91x事件减少，保持炫光+频闪场景的合理性
+优化效果: 数据多样性大幅提升，模拟真实场景变化
 ```
 
-### 核心优化洞察 (修正版)
-1. **k1敏感度优化**: 1.0→3.0 (3x提升，确保炫光事件生成)
-2. **k2阈值优化**: 200→50 (4x降低，显著提高触发敏感度)  
-3. **噪声项平衡**: k3,k5,k6适度调整，避免过度抑制
-4. **Bug修复**: 极端参数导致0事件生成已解决
+### 核心优化洞察 (最新版 2025-08-08)
+1. **k1随机化**: random(0.5-5.265) 动态变化，模拟不同光照条件
+2. **运动范围增强**: 0-180像素移动 (3x增强)，更丰富的运动模式
+3. **数据多样性**: 每次训练产生不同强度的炫光事件
+4. **背景事件**: 切换到简化的data/bg_events/*.h5结构，使用所有文件
 
 ### 事件密度验证 (2025-07-31)
 - **测试1**: 1617.8 events/ms (100ms, 161,777 events)
@@ -115,10 +112,11 @@ FIXED (平衡优化参数):
 
 ## 🚨 CRITICAL DATA PATH CORRECTIONS
 
-### Correct Dataset Paths (Verified & Updated 2025-07-30)
-**DSEC Events**: Pattern `{dsec_path}/*/events/left/events.h5` 
-- ✅ Correctly searches all sequences under base path
-- ✅ Currently finds 47 event files from 5 sequences used
+### Correct Dataset Paths (Updated 2025-08-08)
+**Background Events**: Simplified structure `data/bg_events/*.h5`
+- ✅ 7 background event H5 files, using all files (no 5-file limit)
+- ✅ Total: 3.27 billion background events, 291 time windows
+- ✅ Memory-efficient loading with no file count restrictions
 
 **Flare7K Images**: Two separate Compound_Flare directories
 - ✅ `Flare-R/Compound_Flare/`: 962 flare images  
@@ -126,11 +124,11 @@ FIXED (平衡优化参数):
 - ✅ **Total: 5962 flare images** (6x more than previously reported)
 - ✅ Random selection from both directories during training
 
-### Configuration (configs/config.yaml) - FIXED 2025-08-02
+### Configuration (configs/config.yaml) - Updated 2025-08-08
 ```yaml
 data:
-  # DSEC dataset (correct path structure)
-  dsec_path: "/path/to/dsec/train"  # Base DSEC directory
+  # Background events (simplified structure)
+  dsec_path: "data/bg_events"  # Simplified H5 files directory
   resolution_w: 640  # DSEC standard
   resolution_h: 480  # DSEC standard
   
@@ -174,10 +172,10 @@ data:
 - **天然画布**: 变换后的大图即为工作画布，无需额外创建
 - **自然边界**: 炫光边缘自然过渡，无人工黑色边框
 
-### 5. Simplified Movement on Natural Canvas (2025-07-30) ⚡
+### 5. Enhanced Movement on Natural Canvas (2025-08-08) ⚡
 - **运动方式**: 直接在变换后大图上进行numpy平移操作
-- **边界智能**: 限制工作区域为原图+120像素运动空间
-- **运动范围**: 0-60像素随机距离，运动轨迹自然
+- **边界智能**: 限制工作区域为原图+180像素运动空间
+- **运动范围**: 0-180像素随机距离 (3x增强)，运动轨迹自然多样化
 - **最终裁剪**: PIL CenterCrop自然裁剪到目标分辨率
 - **逻辑简化**: 去除不必要的大画布创建，提高效率
 
