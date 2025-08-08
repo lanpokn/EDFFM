@@ -87,7 +87,7 @@ feature_extractor:
 
 # --- 训练设置 (Training Settings) ---
 training:
-  epochs: 100
+  epochs: 10
   learning_rate: 0.0005                         # 大模型使用较小学习率
   checkpoint_dir: "./checkpoints"
   
@@ -95,7 +95,7 @@ training:
   chunk_size: 8192                              # TBPTT截断长度 (根据显存调整)
   
   # 每个epoch的长序列数量
-  num_long_sequences_per_epoch: 20              # 训练用序列数
+  num_long_sequences_per_epoch: 150              # generate用序列数
   
   # 验证和保存频率 (基于步数)
   validate_every_n_steps: 1000                  # 每1000个chunks验证一次
