@@ -25,8 +25,14 @@ class Trainer:
         self.model.train()
         total_loss = 0
         
-        for raw_events, labels in tqdm(self.train_loader, desc="Training"):
+        for batch_idx, (raw_events, labels) in enumerate(tqdm(self.train_loader, desc="Training")):
             raw_events, labels = raw_events.to(self.device), labels.to(self.device)
+            
+            # 监控GPU显存使用 (前几个batch)
+            if self.device == "cuda" and batch_idx < 5:
+                mem_allocated = torch.cuda.memory_allocated() / 1024**2  # MB
+                mem_reserved = torch.cuda.memory_reserved() / 1024**2   # MB
+                print(f"  GPU Memory - Batch {batch_idx}: Allocated={mem_allocated:.1f}MB, Reserved={mem_reserved:.1f}MB")
             
             self.optimizer.zero_grad()
             

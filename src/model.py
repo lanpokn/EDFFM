@@ -15,11 +15,11 @@ class EventDenoisingMamba(nn.Module):
         self.config = config
         model_config = config['model']
         
-        # ✅ 移除：特征提取器现在在数据集阶段处理，模型直接接收10维特征
+        # ✅ 特征提取器现在在数据集阶段处理，模型直接接收4维特征
         # self.feature_extractor = FeatureExtractor(config)  # 不再需要
         
-        # 从特征提取器获取特征维度 (updated to 10D)
-        input_feature_dim = model_config['input_feature_dim']  # 10维
+        # 从配置获取特征维度 (当前为4维：x_norm, y_norm, dt, polarity)
+        input_feature_dim = model_config['input_feature_dim']  # 4维
         d_model = model_config['d_model']
         
         self.embedding = nn.Linear(input_feature_dim, d_model)
@@ -39,20 +39,21 @@ class EventDenoisingMamba(nn.Module):
 
     def forward(self, features):
         """
-        ✅ 修正：直接接收11维特征，无需内部特征提取
+        Forward pass with 4D features (PFD temporarily disabled for performance)
         
         Args:
-            features (Tensor): Shape: [batch_size, sequence_length, 11] - 11维PFD特征
+            features (Tensor): Shape: [batch_size, sequence_length, 4] - 4维特征 [x_norm, y_norm, dt, polarity]
         Returns:
             probabilities (Tensor): Shape: [batch_size, sequence_length, 1] - 去噪概率
         """
         batch_size, sequence_length, feature_dim = features.shape
         
-        # 验证输入特征维度
-        assert feature_dim == 11, f"Expected 11D features, got {feature_dim}D"
+        # 验证输入特征维度为4维
+        expected_dim = self.config['model']['input_feature_dim']
+        assert feature_dim == expected_dim, f"Expected {expected_dim}D features, got {feature_dim}D"
         
         # 直接进行Mamba处理，无需特征提取
-        x = self.embedding(features)  # [batch_size, sequence_length, 11] → [batch_size, sequence_length, d_model]
+        x = self.embedding(features)  # [batch_size, sequence_length, 4] → [batch_size, sequence_length, d_model]
         for layer in self.layers:
             x = layer(x)
         logits = self.classification_head(x)

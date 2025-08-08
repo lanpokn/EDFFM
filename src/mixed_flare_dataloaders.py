@@ -11,8 +11,8 @@ import numpy as np
 
 def variable_length_collate_fn(batch, sequence_length):
     """
-    Custom collate function to handle variable-length 11D feature sequences.
-    ✅ 修正：现在处理11维特征而不是原始事件
+    Custom collate function to handle variable-length 4D feature sequences.
+    ✅ 修正：现在处理4维特征而不是原始事件
     
     Args:
         batch: List of (features_tensor, labels_tensor) tuples
@@ -20,13 +20,13 @@ def variable_length_collate_fn(batch, sequence_length):
         
     Returns:
         Tuple of (batched_features, batched_labels)
-        batched_features: [batch_size, sequence_length, 11]
+        batched_features: [batch_size, sequence_length, 4]
         batched_labels: [batch_size, sequence_length]
     """
     batch_size = len(batch)
     
-    # Initialize output tensors for 11D features
-    batched_features = torch.zeros((batch_size, sequence_length, 11), dtype=torch.float32)
+    # Initialize output tensors for 4D features
+    batched_features = torch.zeros((batch_size, sequence_length, 4), dtype=torch.float32)
     batched_labels = torch.zeros((batch_size, sequence_length), dtype=torch.long)
     
     for i, (features, labels) in enumerate(batch):

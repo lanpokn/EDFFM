@@ -82,7 +82,7 @@ class EpochIterationDataset(Dataset):
         
         # Epoch-level data (regenerated each epoch)
         self.current_epoch = -1
-        self.long_feature_sequence = None  # [N, 11] - the core feature sequence
+        self.long_feature_sequence = None  # [N, 4] - the core feature sequence
         self.long_labels = None           # [N] - corresponding labels
         self.num_iterations = 0           # Number of iterations possible in current epoch
         
@@ -719,7 +719,7 @@ class EpochIterationDataset(Dataset):
             
         Returns:
             Tuple of (features_tensor, labels_tensor)
-            features_tensor: [sequence_length, 11] - fixed-length feature window
+            features_tensor: [sequence_length, 4] - fixed-length feature window
             labels_tensor: [sequence_length] - corresponding labels
         """
         # Ensure epoch data is generated
