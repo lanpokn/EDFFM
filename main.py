@@ -5,6 +5,7 @@ import os
 
 from src.mixed_flare_dataloaders import create_mixed_flare_dataloaders
 from src.epoch_iteration_dataset import create_epoch_iteration_dataloaders
+from src.unified_dataset import create_unified_dataloaders
 from src.model import EventDenoisingMamba # 确认导入的是修正后的模型
 from src.trainer import Trainer
 from src.evaluate import Evaluator
@@ -24,15 +25,19 @@ def main(config):
         print(f"🚨 DEBUG MODE: Saving visualizations to {output_dir}")
         print(f"🚨 DEBUG MODE: Will run limited iterations for debugging")
 
-    # 1. 创建数据集加载器 
-    # Check if using new TBPTT architecture
-    use_tbptt = config.get('data_pipeline', {}).get('use_tbptt', False)
+    # 1. 创建数据集加载器
+    pipeline_mode = config.get('data_pipeline', {}).get('mode', 'legacy')
     
-    if use_tbptt:
-        print("🎯 Using TBPTT architecture (长序列工厂 + 序列消化器)")
-        print("🔍 DEBUG: Creating TBPTT long sequence dataloaders...")
+    if pipeline_mode in ['generate', 'load']:
+        print(f"🚀 Initializing unified data pipeline in '{pipeline_mode}' mode...")
+        train_loader, val_loader = create_unified_dataloaders(config)
+        test_loader = None # 暂时不处理测试集
+        print("✅ Unified dataloaders created successfully")
+    elif pipeline_mode == 'tbptt_legacy':
+        print("🎯 Using legacy TBPTT architecture")
+        print("🔍 DEBUG: Creating legacy TBPTT dataloaders...")
         train_loader, val_loader, test_loader = create_epoch_iteration_dataloaders(config)
-        print("🔍 DEBUG: TBPTT dataloaders created successfully")
+        print("🔍 DEBUG: Legacy TBPTT dataloaders created successfully")
     else:
         print("📊 Using legacy mixed flare dataloaders")
         train_loader, val_loader, test_loader = create_mixed_flare_dataloaders(config)
