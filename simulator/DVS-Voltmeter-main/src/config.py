@@ -25,15 +25,15 @@ __C.SENSOR.CAMERA_TYPE = 'DVS346'
 
 __C.SENSOR.K = None
 if cfg.SENSOR.CAMERA_TYPE == 'DVS346':
-    __C.SENSOR.K = [3.6447638172600767, 20, 0.0001, 1e-7, 5e-9, 1e-05]
+    __C.SENSOR.K = [5.228799702090493, 20, 0.0001, 1e-7, 5e-9, 1e-05]
 elif cfg.SENSOR.CAMERA_TYPE == 'DVS240':
-    __C.SENSOR.K = [3.6447638172600767, 20, 0.0001, 1e-7, 5e-9, 1e-05]
+    __C.SENSOR.K = [5.228799702090493, 20, 0.0001, 1e-7, 5e-9, 1e-05]
 
 
 # Directories
 __C.DIR                                 = edict()
-__C.DIR.IN_PATH = '/tmp/flare_events_re8zvbuu/'
-__C.DIR.OUT_PATH = '/tmp/flare_events_re8zvbuu/'
+__C.DIR.IN_PATH = '/tmp/flare_events_nc9vet1c/'
+__C.DIR.OUT_PATH = '/tmp/flare_events_nc9vet1c/'
 
 
 # Visualize

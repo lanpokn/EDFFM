@@ -110,7 +110,8 @@ if __name__ == '__main__':
         print("Debug mode enabled.")
         # Limit iterations for debug mode
         config['training']['max_epochs'] = 1
-        config['training']['max_samples_debug'] = 8  # Only process a few samples
+        # Reduce sequences for quick debug validation
+        config['training']['num_long_sequences_per_epoch'] = 8
         # Debug event visualization parameters (multiple temporal resolutions)
         config['debug_event_subdivisions'] = [0.5, 1, 2, 4]  # Multiple subdivision strategies
 

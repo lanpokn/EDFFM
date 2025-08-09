@@ -225,7 +225,7 @@ training:
   chunk_size: 8192                          # TBPTT截断长度 (取代旧的batch_size在训练中的作用)
   
   # 'generate'模式下, 定义每个epoch的"长度" (小型测试用)
-  num_long_sequences_per_epoch: 200          # 🚨 SMALL TEST: 只生成1个序列用于验证
+  num_long_sequences_per_epoch: 1000          # 🚨 SMALL TEST: 只生成1个序列用于验证
   
   # 断点续训的核心参数 (小型测试用)
   validate_every_n_steps: 20000              
@@ -236,4 +236,4 @@ evaluation:
   checkpoint_path: "./checkpoints/best_model.pth" # 评估时加载的模型路径
   
   # TBPTT 验证参数  
-  num_long_sequences_per_epoch: 1          # 🚨 SMALL TEST: 只生成1个验证序列
+  num_long_sequences_per_epoch: 50          # 🚨 生成5个验证序列
