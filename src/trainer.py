@@ -79,15 +79,26 @@ class Trainer:
                 # 全局步数是唯一的时间戳
                 self.global_step += 1
 
-                # 周期性验证和保存
-                if self.global_step > 0 and self.global_step % self.validate_every_n_steps == 0:
+                # --- 统一的周期性检查 ---
+                is_validation_step = (self.global_step > 0 and self.global_step % self.validate_every_n_steps == 0)
+                is_save_step = (self.global_step > 0 and self.global_step % self.save_every_n_steps == 0)
+
+                # --- 1. 执行验证 (如果到了验证步骤) ---
+                if is_validation_step:
                     val_loss = self.validate_one_epoch()
                     print(f"\n📊 Step {self.global_step} | Val Loss: {val_loss:.4f} | Best: {self.best_val_loss:.4f}")
+                    
+                    # 检查是否是新的最佳模型
                     if val_loss < self.best_val_loss:
+                        print("🏆 New best model found!")
                         self.best_val_loss = val_loss
+                        # 保存最佳模型检查点 (它也会保存一个常规的step检查点)
                         self._save_checkpoint(is_best=True)
-                
-                if self.global_step > 0 and self.global_step % self.save_every_n_steps == 0:
+                        # 关键：重置保存标志，避免重复保存
+                        is_save_step = False
+
+                # --- 2. 执行常规保存 (如果到了保存步骤且验证步骤没有保存过) ---
+                if is_save_step:
                     self._save_checkpoint(is_best=False)
     
     def validate_one_epoch(self):
@@ -96,8 +107,8 @@ class Trainer:
         total_chunks_processed = 0
         
         with torch.no_grad():
-            # 外循环：遍历所有长序列
-            for long_features, long_labels in tqdm(self.val_loader, desc="Validating"):
+            # 外循环：遍历所有长序列 (禁用tqdm避免与训练进度条冲突)
+            for long_features, long_labels in self.val_loader:
                 # ### BEGIN BUGFIX 1: STATE LEAKAGE ###
                 self.model.reset_hidden_state()
                 # ### END BUGFIX 1 ###
