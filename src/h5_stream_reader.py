@@ -26,8 +26,16 @@ class H5StreamReader:
         self.time_limit_us = time_limit_us
         
         with h5py.File(self.h5_file_path, 'r') as f:
-            if 'events/t' not in f:
-                raise ValueError("Input H5 file must contain 'events/t' dataset.")
+            # Check file format - DSEC vs Generated Training Data
+            if 'events/t' in f:
+                self.file_format = 'dsec'
+            elif 'features' in f and 'labels' in f:
+                self.file_format = 'generated'
+                print("⚠️  Warning: This file contains pre-extracted features, not raw events.")
+                print("   Generated training files cannot be used for inference as they lack raw event data.")
+                raise ValueError("Generated training H5 files are not supported for inference. Please use DSEC format raw event files.")
+            else:
+                raise ValueError("Input H5 file must contain either 'events/t' (DSEC format) or 'features' (generated format).")
             
             if self.time_limit_us is not None:
                 # Find first event timestamp
