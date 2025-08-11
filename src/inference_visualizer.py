@@ -28,7 +28,7 @@ class InferenceEventVisualizer:
                                      original_h5_path: str,
                                      clean_h5_path: str, 
                                      output_dir: str,
-                                     time_limit_us: int = 1_000_000):  # 1 second
+                                     time_limit_us: int = 100_000):  # 100ms default
         """
         Create 1000 comparison visualizations (1ms each) showing original vs cleaned events.
         
@@ -70,11 +70,12 @@ class InferenceEventVisualizer:
         start_time = original_events[0, 2]  # First timestamp
         end_time = start_time + time_limit_us
         
-        # Create 1000 frames at 1ms intervals
-        time_intervals = np.linspace(start_time, end_time, 1001)  # 1001 to get 1000 intervals
+        # Create 100 frames at 1ms intervals for 100ms
+        num_frames = min(1000, int(time_limit_us / 1000))  # 1 frame per ms
+        time_intervals = np.linspace(start_time, end_time, num_frames + 1)
         
-        print(f"🎬 Creating 1000 visualization frames...")
-        for i in tqdm(range(1000), desc="Generating frames"):
+        print(f"🎬 Creating {num_frames} visualization frames...")
+        for i in tqdm(range(num_frames), desc="Generating frames"):
             t_start = time_intervals[i]
             t_end = time_intervals[i + 1]
             
@@ -109,7 +110,7 @@ class InferenceEventVisualizer:
                 t_start, t_end, start_time
             )
         
-        print(f"✅ Visualization complete! 3000 total frames saved to: {output_dir}")
+        print(f"✅ Visualization complete! {num_frames*3} total frames saved to: {output_dir}")
         print(f"  - Original frames: {original_dir}")
         print(f"  - Clean frames: {clean_dir}")  
         print(f"  - Comparison frames: {comparison_dir}")

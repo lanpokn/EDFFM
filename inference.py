@@ -59,7 +59,7 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', type=float, default=0.5, help="Prediction threshold to remove flare events.")
     parser.add_argument('--block-size', type=int, default=5_000_000, 
                         help="Number of events to load into RAM at once. Decrease this value if you run out of RAM.")
-    parser.add_argument('--time-limit', type=float, default=1.0,
+    parser.add_argument('--time-limit', type=float, default=0.1,
                         help="Time limit in seconds for processing events from the start of the file.")
 
     args = parser.parse_args()

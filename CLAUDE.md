@@ -138,11 +138,81 @@ python main.py --config configs/config.yaml
 - **清理**: `src/flare_synthesis.py` - 注释详细步骤输出
 - **清理**: `src/dvs_flare_integration.py` - 修复语法错误，注释verbose输出
 
+## 🔍 推理系统 (2025-08-11)
+
+### ✅ 工业级流式推理架构
+EventMamba-FX现已配备完整的**OOM-防护流式推理系统**，可处理任意大小的DSEC H5文件进行事件去噪。
+
+#### 核心推理组件
+
+1. **H5StreamReader (src/h5_stream_reader.py)**
+   - **分块读取**: 默认处理块大小可配置（避免内存OOM）
+   - **时间限制**: 支持仅处理文件前N秒的事件
+   - **二分搜索**: 高效定位时间截止点
+
+2. **Predictor (src/predictor.py)** 
+   - **流式处理**: 逐块处理大文件，不一次性加载
+   - **优化chunk_size**: 推理时使用10倍训练chunk_size (81,920)
+   - **内存管理**: 显式清理GPU缓存，强制垃圾回收
+   - **性能监控**: 实时显示特征提取vs推理时间比
+
+3. **InferenceEventVisualizer (src/inference_visualizer.py)**
+   - **时序可视化**: 支持1ms间隔的逐帧事件可视化
+   - **对比分析**: 原始vs去噪事件的并排比较
+   - **DSEC风格**: 黑底彩色点阵，红色ON/青色OFF事件
+
+### 🚀 推理使用方法
+
+**基本推理**（处理前1秒事件）:
+```bash
+python inference.py \
+    --config configs/config.yaml \
+    --checkpoint checkpoints/best_model.pth \
+    --input data/inference/zurich_city_12_a.h5 \
+    --output data/inference/clean_output.h5 \
+    --time-limit 1.0
+```
+
+**内存优化推理**:
+```bash
+python inference.py \
+    --config configs/config.yaml \
+    --checkpoint checkpoints/best_model.pth \
+    --input data/inference/zurich_city_12_a.h5 \
+    --output data/inference/clean_output.h5 \
+    --time-limit 0.1 \
+    --block-size 1000000  # 减小块大小防止OOM
+```
+
+**推理+可视化管线**:
+```bash
+python run_inference_with_visualization.py
+```
+
+### 📊 验证结果 (zurich_city_12_a.h5前100ms)
+
+- **原始事件数**: 1,817,979
+- **去噪后事件数**: 1,644,775  
+- **炫光事件移除**: 173,204 (9.53%)
+- **推理性能**: 
+  - 特征提取时间: 0.03s
+  - 模型推理时间: 23.15s
+  - **瓶颈**: 模型推理是主要性能瓶颈
+- **可视化输出**: 300帧(100ms × 3类型)
+
+### 🔧 推理系统特性
+
+- ✅ **OOM防护**: 分块处理任意大小H5文件
+- ✅ **时间控制**: 可限制处理特定时长的事件
+- ✅ **内存优化**: 10倍chunk_size提升推理效率
+- ✅ **可视化**: 完整的时序对比可视化
+- ✅ **DSEC兼容**: 完美支持DSEC数据集格式
+
 ## 🎯 下一步开发重点
 
-1. **DVS炫光事件Bug修复**: 当前merge事件中DVS炫光事件数量为0，需要调试DVS仿真器集成
-2. **PFD特征恢复**: 在训练稳定后恢复11D物理特征
-3. **性能优化**: 大规模训练配置调优
+1. **推理性能优化**: 模型推理是主要瓶颈，考虑批处理优化
+2. **DVS炫光事件Bug修复**: 当前merge事件中DVS炫光事件数量为0，需要调试DVS仿真器集成
+3. **PFD特征恢复**: 在训练稳定后恢复11D物理特征
 
 ## 🚨 内存安全配置 (历史验证)
 - **batch_size**: 固定为1 (TBPTT需求)

@@ -10,6 +10,7 @@ import hdf5plugin
 import os
 from tqdm import tqdm
 import gc  # For garbage collection
+import time
 
 from src.h5_stream_reader import H5StreamReader
 from src.feature_extractor import FeatureExtractor
@@ -21,7 +22,8 @@ class Predictor:
         self.config = config
         self.device = device
         
-        self.chunk_size = config['training']['chunk_size']
+        # Use larger chunk size for inference since no backpropagation is needed
+        self.chunk_size = config['training']['chunk_size'] * 10
         self.denoise_threshold = config['inference']['denoise_threshold']
         self.block_size_events = config['inference']['block_size_events']
         
@@ -65,16 +67,24 @@ class Predictor:
 
             # --- Main Processing Loop: Iterate through large blocks from the H5 file ---
             block_pbar = tqdm(total=stream_reader.total_events, desc="Processing H5 Blocks")
-            for raw_events_block, start_idx, end_idx in stream_reader.stream_blocks():
+            total_feature_time = 0
+            total_inference_time = 0
+            
+            for block_idx, (raw_events_block, start_idx, end_idx) in enumerate(stream_reader.stream_blocks()):
+                block_start_time = time.time()
                 
                 # 1. Feature Extraction (on CPU)
                 # This is a memory-heavy step, so we do it per block
+                feature_start = time.time()
                 features_block = self.feature_extractor.process_sequence(raw_events_block)
                 features_tensor = torch.from_numpy(features_block)
+                feature_time = time.time() - feature_start
+                total_feature_time += feature_time
                 
                 block_predictions = []
                 
                 # 2. Inference Loop: Iterate through small chunks within the block
+                inference_start = time.time()
                 with torch.no_grad():
                     for i in range(0, features_tensor.shape[0], self.chunk_size):
                         # Move only the small chunk to GPU
@@ -94,6 +104,9 @@ class Predictor:
                         del chunk_features
                         if self.device == 'cuda':
                             torch.cuda.empty_cache()
+                
+                inference_time = time.time() - inference_start
+                total_inference_time += inference_time
 
                 # 3. Filter and Save the processed block
                 predictions_array = np.array(block_predictions)
@@ -109,10 +122,24 @@ class Predictor:
                 total_events_kept += len(clean_events_in_block)
                 block_pbar.update(len(raw_events_block))
 
+                # Print timing info every 5 blocks
+                if block_idx % 5 == 0 and block_idx > 0:
+                    avg_feature_time = total_feature_time / (block_idx + 1)
+                    avg_inference_time = total_inference_time / (block_idx + 1)
+                    total_time = time.time() - block_start_time
+                    print(f"\n  Block {block_idx+1}: Feature={feature_time:.2f}s, Inference={inference_time:.2f}s, Total={total_time:.2f}s")
+                    print(f"  Avg times: Feature={avg_feature_time:.2f}s, Inference={avg_inference_time:.2f}s")
+
                 del raw_events_block, features_block, features_tensor, block_predictions, predictions_array, keep_mask
                 gc.collect()  # Force garbage collection
 
             block_pbar.close()
+            
+            # Print final timing statistics
+            print(f"\n⏱️  Performance Summary:")
+            print(f"  Total feature extraction time: {total_feature_time:.2f}s")
+            print(f"  Total inference time: {total_inference_time:.2f}s")
+            print(f"  Feature/Inference ratio: {total_feature_time/total_inference_time:.2f}x")
 
         # --- Final Summary ---
         percent_removed = ((total_events_processed - total_events_kept) / total_events_processed * 100) if total_events_processed > 0 else 0

@@ -10,3 +10,5 @@ flare的频率可以再翻倍
 存的是处理过的x,y,dt,p和label而不是原始的xytp,这点要注意，后续想补feature extractor就不容易了
 
 面向val_loss来调整学习率
+
+inference怎么这么慢？有余力去思考实时推理
