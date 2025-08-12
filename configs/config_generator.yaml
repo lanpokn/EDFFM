@@ -1,0 +1,107 @@
+# ===================================================================
+#      EventMamba-FX Data Generator Configuration 
+# ===================================================================
+#
+# 🎯 专注数据生成 (Generate Mode Only)
+# 用于生成事件相机炫光数据集，包含DSEC背景事件和DVS仿真炫光事件
+#
+# ==================================================================
+
+# --- 运行设置 (Run Settings) ---
+run:
+  mode: generate         # 固定为generate模式
+  experiment_name: event_flare_data_generator
+
+# --- 数据管线设置 (Data Pipeline Settings) ---
+data_pipeline:
+  mode: 'generate'       # 固定为生成模式
+  h5_archive_path: 'data/generated_h5'  # 生成数据存储路径
+  num_workers: 0         # 生成模式必须为0 (单进程安全)
+  
+# --- 数据集设置 (Data Settings) ---
+data:
+  # 背景事件数据路径 (DSEC H5文件目录)
+  dsec_path: "data/bg_events"
+  
+  # Flare7K数据集路径 (炫光图像数据)
+  flare7k_path: "/mnt/e/2025/physical_deflare/Datasets/Flare7Kpp/Flare7Kpp"
+  
+  # 事件仿真器配置 (只保留DVS-Voltmeter)
+  event_simulator:
+    type: "dvs_voltmeter"
+    
+    # DVS-Voltmeter 配置
+    dvs_voltmeter:
+      simulator_path: "/mnt/e/2025/event_flick_flare/main/simulator/DVS-Voltmeter-main"
+      timeout_sec: 60
+      
+      # DVS参数 (基于物理原理优化)
+      parameters:
+        # k1降低光-电转换敏感度，减少炫光事件强度
+        dvs346_k: [2.5, 20, 0.0001, 1e-7, 5e-9, 0.00001]
+        dvs240_k: [4.424, 23, 0.0002, 1e-7, 5e-8, 0.00001]
+  
+  # 随机化训练数据生成策略
+  randomized_training:
+    # 背景事件随机长度范围
+    background_duration_range: [0.05, 0.1]      # 50-100ms
+    
+    # 训练集偏向设置
+    background_contains_flare_prob: 0.75    # 75%情况下背景包含炫光
+    flare_only_prob: 0.1                    # 10%只有炫光事件
+    background_only_prob: 0.15              # 15%只有背景事件
+    
+  # 合成flare事件的参数 (基于真实人造光源闪烁频率)  
+  flare_synthesis:
+    # 真实世界人造光源闪烁频率
+    realistic_frequencies:
+      power_50hz: 100.0                  # 50Hz电网国家: 荧光灯、LED闪烁100Hz
+      power_60hz: 120.0                  # 60Hz电网国家: 荧光灯、LED闪烁120Hz
+      japan_east: 100.0                  # 日本东部
+      japan_west: 120.0                  # 日本西部
+    
+    frequency_variation: 5.0             # ±5Hz随机变化
+    min_samples_per_cycle: 48            # 每个闪烁周期最少采样点数
+    max_fps: 6000                        # 最大帧率限制
+    
+    flicker_curves: ["sine", "square", "triangle", "exponential"]
+    position_random: true                # 随机flare位置
+    intensity_scale: [0.8, 1.2]        # 强度缩放范围
+    duration_range: [0.03, 0.08]       # 炫光序列时长范围 30-80ms
+    
+    # 真实人造光源强度范围
+    min_intensity_baseline: [0.0, 0.7]  # 最低强度随机范围 (0-70%)
+    max_intensity: 1.0                   # 最大强度 (100%)
+  
+  # 事件相机分辨率 (DSEC分辨率)
+  resolution_h: 480
+  resolution_w: 640
+  
+  # 基础参数
+  time_window_us: 1000000   # 1 second (会被随机化覆盖)
+  sequence_length: 64       # 序列长度
+
+# --- 特征提取器设置 (Feature Extractor Settings) ---
+feature_extractor:
+  # PFD 特征提取参数 (当前禁用，使用4D快速特征)
+  pfd_time_window: 25000      # Time window for Mf calculation (25ms in µs)
+  pfd_neighborhood_size: 3    # Neighborhood size for PFD features (1=1x1, 3=3x3, 5=5x5)
+  
+  # 原有参数 (保持向后兼容)
+  coarse_time_window: 2000    # (δtc, in µs)
+  coarse_support_threshold: 1 # (μ)
+  coarse_neighborhood_size: 3 # (n x n)
+  fine_time_window: 30000     # (δtf, in µs)
+  fine_neighborhood_size: 3   # (n x n)
+
+# --- 数据生成设置 (Data Generation Settings) ---
+generation:
+  # 训练数据生成数量
+  num_train_sequences: 10      # 生成训练序列数量
+  num_val_sequences: 5         # 生成验证序列数量  
+  num_test_sequences: 0        # 生成测试序列数量 (可选)
+  
+  # Debug模式设置
+  debug_mode: false            # 是否启用debug可视化
+  debug_sequences: 8           # debug模式下的序列数量
+  debug_subdivisions: [0.5, 1, 2, 4]  # debug时间窗口细分
