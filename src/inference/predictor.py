@@ -12,8 +12,8 @@ from tqdm import tqdm
 import gc  # For garbage collection
 import time
 
-from src.h5_stream_reader import H5StreamReader
-from src.feature_extractor import FeatureExtractor
+from .h5_stream_reader import H5StreamReader
+from ..feature_extractor import FeatureExtractor
 
 class Predictor:
     def __init__(self, model, config, device):
