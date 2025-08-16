@@ -82,22 +82,51 @@ dvs346_k: [2.5, 100, 0.01, 1e-7, 1e-8, 0.001]
 
 ### Step 1: Environment Setup
 
+⚠️ **CRITICAL**: First check your server's CUDA version with `nvcc --version` and `nvidia-smi`
+
 ```bash
 # Create conda environment
 conda create -n event_flare python=3.10 -y
 conda activate event_flare
 
-# Install PyTorch with CUDA support (adjust CUDA version as needed)
-conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+# 🔍 Check your CUDA version first
+nvcc --version  # Should show CUDA 11.x or 12.x
+nvidia-smi      # Check driver version
 
-# Install Mamba SSM and dependencies
-pip install ninja causal-conv1d>=1.2.0 mamba-ssm
+# Install PyTorch matching YOUR server's CUDA version:
+
+# For CUDA 11.8 servers (most common):
+conda install pytorch==2.2.1 torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+
+# For CUDA 12.1 servers:
+# conda install pytorch==2.2.1 torchvision==0.17.1 torchaudio==2.2.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+conda install -c conda-forge gxx_linux-64
+
+# Install Mamba dependencies (MUST match PyTorch CUDA version)
+pip install ninja
+
+#https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.1.0/causal_conv1d-1.1.0+cu118torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+# wget -c https://github.com/state-spaces/mamba/releases/download/v1.1.0/mamba_ssm-1.1.0+cu118torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+
+# For CUDA 11.8:
+pip install causal-conv1d==1.1.0 mamba-ssm==1.1.0
+
+# For CUDA 12.1:
+# pip install causal-conv1d>=1.2.0 mamba-ssm>=1.2.0
+# ln -s ~/eventFlare/causal-conv1d-1.1.0/causal_conv1d ~/miniconda3/envs/event_flare/lib/python3.10/site-packages/causal_conv1d
+# ln -s ~/eventFlare/mamba-1.1.0/mamba_ssm ~/miniconda3/envs/event_flare/lib/python3.10/site-packages/mamba_ssm
+
 
 # Install other dependencies
 pip install -r requirements.txt
 
 # Additional packages for event data processing
-pip install h5py hdf5plugin opencv-python pandas
+pip install h5py hdf5plugin opencv-python pandas einops
+conda install "numpy<2" opencv
+
+# 🔥 VERIFY installation (CRITICAL step)
+python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.version.cuda}, Available: {torch.cuda.is_available()}')"
+python -c "import causal_conv1d, mamba_ssm; print('✅ All Mamba dependencies OK')"
 ```
 
 ### Step 2: Clone and Setup Project
