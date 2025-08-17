@@ -1,239 +1,132 @@
-# ===================================================================
-#      Configuration File for EventMamba-FX (TBPTT Architecture)
-# ===================================================================
-#
-# 🎯 TBPTT (Truncated Backpropagation Through Time) Architecture:
-#
-# 新架构概念说明：
-# - DataLoader: "长序列工厂" - 每次返回一个完整的长特征序列
-# - Trainer: "序列消化器" - 在长序列上进行TBPTT chunk切分训练
-# 
-# 工作流程：
-# 1. DataLoader生成一个完整的长序列 [L, feature_dim]
-# 2. Trainer将其切分为固定大小的chunks [chunk_size, feature_dim]
-# 3. 每个chunk独立进行前向+反向传播（梯度被截断）
-# 4. 模型状态在每个chunk边界重置，但通过连续数据学习跨边界模式
-#
-# 优势：
-# - 适合超长序列训练（数万个事件）
-# - 内存友好：每次只处理一个chunk
-# - 梯度稳定：截断避免梯度消失/爆炸
-# ==================================================================
-
-# --- 运行设置 (Run Settings) ---
 run:
-  mode: train         # 运行模式: 'train' or 'evaluate'
+  mode: train
   experiment_name: event_denoising_mamba_v1
 
-# --- 数据管线设置 (Data Pipeline Settings) ---
 data_pipeline:
-  # 🚨 关键开关: 'generate' 或 'load'
-  mode: 'load'           # 'generate': 实时生成并存档, 'load': 从磁盘加载预生成数据
-  
-  # 'generate'和'load'模式都需要的存档路径
+  mode: 'load'
   h5_archive_path: 'data/generated_h5'
-  
-  # 'load'模式下可选的并行加载设置
-  num_workers: 0             # 'generate'模式下必须为0, 'load'模式可以设置为4等
-  
-# --- 数据集设置 (Data Settings) ---
+  num_workers: 0
+
 data:
-  # 背景事件数据路径 (简化的H5文件目录)
   dsec_path: "data/bg_events"
-  
-  # Flare7Kpp数据集路径 (Compound_Flare散射数据)
-  # Flare7K/Scattering_Flare/Scattering_Flare and  Flare-R/Compound_Flare
   flare7k_path: "/mnt/e/2025/physical_deflare/Datasets/Flare7Kpp/Flare7Kpp"
   
-  # 事件仿真器选择 (Event Simulator Selection)
   event_simulator:
-    type: "dvs_voltmeter"           # 选择仿真器: "dvs_voltmeter", "v2ce", or "iebcs" 
+    type: "dvs_voltmeter"
     
-    # DVS-Voltmeter 配置 (传统仿真器)
     dvs_voltmeter:
       simulator_path: "/mnt/e/2025/event_flick_flare/main/simulator/DVS-Voltmeter-main"
       timeout_sec: 60
       
-      # DVS参数调优 (基于物理原理减少事件数量)
       parameters:
-        # DVS346参数 [k1, k2, k3, k4, k5, k6] - 基于Brownian Motion with Drift模型
-        # 论文Eq.(10): ΔVd = (k1/(L+k2))·kdL·Δt + (k3/(L+k2))·√L·W(Δt) + k4·Δt + k5·L·Δt + k6·W(Δt)
-        # 
-        # 物理意义:
-        # k1: 光-电转换系数 (越小->对光变化敏感度越低->事件越少)
-        # k2: 暗电流偏移 (越大->分母越大->敏感度越低->事件越少) 
-        # k3: 光子噪声系数 (越小->随机触发越少->事件越少)
-        # k4: 温度漏电流 (影响背景事件率)
-        # k5: 寄生光电流 (越小->亮度相关噪声越少->事件越少)
-        # k6: 漏电流噪声 (越小->随机噪声越少->事件越少)
-        #
-        # 调低k1参数减少炫光事件强度 (从5.265调低到2.5)
-        dvs346_k: [2.5, 20, 0.0001, 1e-7, 5e-9, 0.00001]  # 降低k1光-电转换敏感度
-        
-        # DVS240参数 (GitHub原始)
-        dvs240_k: [4.424, 23, 0.0002, 1e-7, 5e-8, 0.00001]  # 0.000094 * 47065 = 4.424
+        dvs346_k: [2.5, 20, 0.0001, 1e-7, 5e-9, 0.00001]
+        dvs240_k: [4.424, 23, 0.0002, 1e-7, 5e-8, 0.00001]
       
-    # V2CE 配置 (新的深度学习仿真器)  
     v2ce:
       model_path: "/mnt/e/2025/event_flick_flare/main/simulator/V2CE-Toolbox-master/weights/v2ce_3d.pt"
       toolbox_path: "/mnt/e/2025/event_flick_flare/main/simulator/V2CE-Toolbox-master"
-      seq_len: 16                   # V2CE序列长度 (更短，效率更高)
-      infer_type: "center"          # "center" or "pano"
-      batch_size: 1                 # V2CE批处理大小 
-      height: 260                   # V2CE标准高度
-      width: 346                    # V2CE标准宽度
+      seq_len: 16
+      infer_type: "center"
+      batch_size: 1
+      height: 260
+      width: 346
       
-      # 动态帧率配置 (根据炫光频率和时长自适应)
-      base_fps: 200                 # 基础帧率 (最低200fps)
-      max_fps: 1600                 # 最大帧率限制 (匹配flare_synthesis)
-      min_samples_per_cycle: 8      # 每个闪烁周期最少采样数
-      fps_scale_factor: 1.5         # 帧率缩放因子
+      base_fps: 200
+      max_fps: 1600
+      min_samples_per_cycle: 8
+      fps_scale_factor: 1.5
       
-      ceil: 10                      # 事件帧上限值
-      upper_bound_percentile: 98    # 事件帧上界百分位
+      ceil: 10
+      upper_bound_percentile: 98
     
-    # IEBCS 配置 (ICNS Event Based Camera Simulator)
     iebcs:
       simulator_path: "/mnt/e/2025/event_flick_flare/main/simulator/IEBCS-main"
       timeout_sec: 60
       
-      # IEBCS传感器参数 (基于DVS346规格)
       sensor_parameters:
-        th_pos: 0.4                # ON阈值 (对数域)
-        th_neg: 0.4                # OFF阈值 (对数域)  
-        th_noise: 0.01             # 阈值噪声标准差
-        latency: 100               # 延迟 (微秒)
-        tau: 40                    # 前端时间常数 (微秒)
-        jitter: 10                 # 时间抖动标准差 (微秒)
-        bgnp: 0.1                  # ON事件噪声率 (events/pixel/s)
-        bgnn: 0.01                 # OFF事件噪声率 (events/pixel/s)
-        refractory: 100            # 不应期 (微秒)
-        dt: 500                    # 帧间时间间隔 (微秒) - 减半提高频闪采样
+        th_pos: 0.4
+        th_neg: 0.4
+        th_noise: 0.01
+        latency: 100
+        tau: 40
+        jitter: 10
+        bgnp: 0.1
+        bgnn: 0.01
+        refractory: 100
+        dt: 500
         
-      # 动态帧率计算 (确保频闪质量)
       frame_generation:
-        min_samples_per_cycle: 12  # 每个闪烁周期最少采样点数 (与其他仿真器一致)
-        max_fps: 600               # 最大帧率限制 (提高以反映频闪)
-        base_fps: 300              # 基础帧率
+        min_samples_per_cycle: 12
+        max_fps: 600
+        base_fps: 300
         
-      # 多时间窗口事件可视化 (与DVS一致)
       debug_visualization:
-        enable_multi_timewindow: true    # 启用多时间窗口可视化 (仅在debug模式下)
-        time_window_scales: [0.5, 1, 2, 4] # 时间窗口倍数 (事件积累时长)
-        temporal_subdivisions: 5          # 每帧时间细分数 (与DVS一致)
+        enable_multi_timewindow: true
+        time_window_scales: [0.5, 1, 2, 4]
+        temporal_subdivisions: 5
         
-      # 噪声模型配置 (可选)
       noise_model:
-        enable_measured_noise: false  # 是否使用测量的噪声分布
+        enable_measured_noise: false
         noise_pos_file: "data/noise_pos_161lux.npy"
         noise_neg_file: "data/noise_neg_161lux.npy"
   
-  # 随机化训练数据生成策略
   randomized_training:
-    # 背景事件随机长度范围 (缩减用于快速测试)
-    background_duration_range: [0.05, 0.1]      # 50-100ms (缩减用于快速debug测试)
+    background_duration_range: [0.05, 0.1]
+    background_contains_flare_prob: 0.75
+    flare_only_prob: 0.1
+    background_only_prob: 0.15
     
-    # 🚨 REMOVED: flare_duration_range - 由flare_synthesis.duration_sec控制
-    # 🚨 REMOVED: flare相关offset - 炫光生成完全由flare_synthesis管理
-    
-    # 训练集偏向设置 (保持常见场景为主)
-    background_contains_flare_prob: 0.75    # 75%情况下背景包含炫光
-    flare_only_prob: 0.1                    # 10%只有炫光事件
-    background_only_prob: 0.15              # 15%只有背景事件
-    
-  # 合成flare事件的参数 (基于真实人造光源闪烁频率)  
   flare_synthesis:
-    # 真实世界人造光源闪烁频率 (基于电网频率)
     realistic_frequencies:
-      # 50Hz电网国家 (欧洲/亚洲/非洲/澳洲): 荧光灯、LED闪烁100Hz
-      power_50hz: 100.0                  # 基础频率100Hz
-      # 60Hz电网国家 (北美/部分南美): 荧光灯、LED闪烁120Hz  
-      power_60hz: 120.0                  # 基础频率120Hz
-      # 日本特殊情况: 东部50Hz, 西部60Hz
-      japan_east: 100.0                  # 东京等地区
-      japan_west: 120.0                  # 大阪等地区
+      power_50hz: 100.0
+      power_60hz: 120.0
+      japan_east: 100.0
+      japan_west: 120.0
     
-    # 随机变化范围 (±Hz, 模拟电网不稳定、调光器、老化等因素)
-    frequency_variation: 5.0             # ±5Hz随机变化
+    frequency_variation: 5.0
+    min_samples_per_cycle: 48
+    max_fps: 6000
     
-    # 动态帧率计算 (提高帧密度确保充分采样)
-    min_samples_per_cycle: 48            # 每个闪烁周期最少采样点数 (再次翻倍：1s从2400→4800帧)
-    max_fps: 6000                        # 最大帧率限制 (翻倍支持更高密度采样)
-    
-    flicker_curves: ["sine", "square", "triangle", "exponential"]  # 闪烁曲线类型
-    position_random: true                # 随机flare位置
-    intensity_scale: [0.8, 1.2]        # 强度缩放范围 (减小随机性，避免破坏频闪规律)
-    
-    # 🚨 UNIFIED CONTROL: 炫光持续时间的唯一控制参数 (缩减用于快速测试)
-    duration_range: [0.03, 0.08]       # 炫光序列时长范围 30-80ms (缩减用于快速debug测试)
-    
-    # 真实人造光源强度范围 (避免完全黑屏)
-    min_intensity_baseline: [0.0, 0.7]  # 最低强度随机范围 (0-70%)
-    max_intensity: 1.0                  # 最大强度 (100%)
+    flicker_curves: ["sine", "square", "triangle", "exponential"]
+    position_random: true
+    intensity_scale: [0.8, 1.2]
+    duration_range: [0.03, 0.08]
+    min_intensity_baseline: [0.0, 0.7]
+    max_intensity: 1.0
   
-  # 向后兼容参数 (保持原有接口)
-  time_window_us: 1000000   # 1 second (基础参数，会被随机化覆盖)
-  
-  # 事件相机分辨率 (DSEC分辨率)
+  time_window_us: 1000000
   resolution_h: 480
   resolution_w: 640
+  sequence_length: 64
+  num_workers: 0
+  max_samples_debug: 4
 
-  # DataLoader 参数 
-  sequence_length: 64     # 合理的序列长度进行有效训练（4太小了！）
-  num_workers: 0          # 加载数据的进程数 (set to 0 for debugging)
-  max_samples_debug: 4   # Debug模式：只使用4个样本（2个batch快速验证）
-
-# --- 模型架构设置 (Model Architecture Settings) ---
 model:
-  # 特征提取器输出的维度，同时也是Mamba嵌入层之前的输入维度 (临时改为4维，PFD已禁用)
-  input_feature_dim: 4     
-  
-  # Mamba 骨干网络参数 - 可根据显卡性能调整
-  # d_model: 128            # Mamba 内部的工作维度 (可调整: 64/128/256/512)
-  # d_state: 16             # SSM 状态空间的维度 (可调整: 8/16/32/64)
-  # d_conv: 4               # Mamba 内部1D卷积核大小 (可调整: 3/4/5)
-  # expand: 2               # Mamba 块的扩展因子 (可调整: 1/2/4)
-  # n_layers: 4             # 堆叠的 Mamba 模块数量 (可调整: 2/4/6/8/12)
-  
-  # 更强显卡建议配置 (注释掉的高性能版本):
-  d_model: 512            # Mamba 内部的工作维度 (可调整: 64/128/256/512)
-  d_state: 64             # SSM 状态空间的维度 (可调整: 8/16/32/64)
-  d_conv: 5               # Mamba 内部1D卷积核大小 (可调整: 3/4/5)
-  expand: 4               # Mamba 块的扩展因子 (可调整: 1/2/4)
-  n_layers: 12             # 堆叠的 Mamba 模块数量 (可调整: 2/4/6/8/12)
+  input_feature_dim: 4
+  d_model: 512
+  d_state: 64
+  d_conv: 4
+  expand: 4
+  n_layers: 12
 
-# --- 特征提取器算法设置 (Feature Extractor Algorithm Settings) ---
 feature_extractor:
-  # PFD 特征提取参数
-  pfd_time_window: 25000      # Time window for Mf calculation (25ms in µs)
-  pfd_neighborhood_size: 3    # Neighborhood size for PFD features (1=1x1, 3=3x3, 5=5x5)
-  
-  # 原有参数 (保持向后兼容)
-  coarse_time_window: 2000    # (δtc, in µs)
-  coarse_support_threshold: 1 # (μ)
-  coarse_neighborhood_size: 3 # (n x n)
-  fine_time_window: 30000     # (δtf, in µs)
-  fine_neighborhood_size: 3   # (n x n)
+  pfd_time_window: 25000
+  pfd_neighborhood_size: 3
+  coarse_time_window: 2000
+  coarse_support_threshold: 1
+  coarse_neighborhood_size: 3
+  fine_time_window: 30000
+  fine_neighborhood_size: 3
 
-# --- 训练设置 (Training Settings) ---
 training:
-  epochs: 20  # 验证用，只训练1轮
+  epochs: 20
   learning_rate: 0.0005
-  checkpoint_dir: "./checkpoints" # 保存模型权重的目录
-  
-  # ✅ TBPTT (Truncated Backpropagation Through Time) 参数
-  chunk_size: 8192                          # TBPTT截断长度 (取代旧的batch_size在训练中的作用)
-  
-  # 'generate'模式下, 定义每个epoch的"长度" (小型测试用)
-  num_long_sequences_per_epoch: 500          # 🚨 SMALL TEST: 只生成1个序列用于验证
-  
-  # 断点续训的核心参数 
-  validate_every_n_steps: 5000              
-  save_every_n_steps: 5000                  
+  checkpoint_dir: "./checkpoints"
+  chunk_size: 8192
+  num_long_sequences_per_epoch: 500
+  validate_every_n_steps: 5000
+  save_every_n_steps: 5000
 
-# --- 评估设置 (Evaluation Settings) ---
 evaluation:
-  checkpoint_path: "./checkpoints/best_model.pth" # 评估时加载的模型路径
-  
-  # TBPTT 验证参数  
-  num_long_sequences_per_epoch: 50          # 🚨 生成5个验证序列
+  checkpoint_path: "./checkpoints/best_model.pth"
+  num_long_sequences_per_epoch: 50

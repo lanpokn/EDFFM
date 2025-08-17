@@ -136,9 +136,11 @@ class Trainer:
                     
                     loss = self.criterion(predictions.squeeze(), chunk_labels.float())
                     
-                    # 按块的长度加权损失，更公平
-                    total_loss += loss.item() * len(chunk_features)
-                    total_chunks_processed += len(chunk_features)
+                    # 按块的长度加权损失，更公平 - 修复权重计算
+                    # len(chunk_features) 是batch_size (=1)，应该用序列长度
+                    sequence_length = chunk_features.shape[1]  # 实际序列长度
+                    total_loss += loss.item() * sequence_length
+                    total_chunks_processed += sequence_length
                     
         return total_loss / total_chunks_processed if total_chunks_processed > 0 else 0
 
