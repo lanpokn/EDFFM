@@ -45,7 +45,8 @@
       "Bash(/home/lanpoknlanpokn/miniconda3/bin/conda run -n event_flare python test_v2ce_final_fix.py)",
       "Bash(/home/lanpoknlanpokn/miniconda3/bin/conda run -n event_flare python debug_v2ce_timing.py)",
       "Bash(echo)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }
