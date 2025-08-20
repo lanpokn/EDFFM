@@ -161,7 +161,7 @@ data:
       japan_west: 120.0                  # 大阪等地区
     
     # 随机变化范围 (±Hz, 模拟电网不稳定、调光器、老化等因素)
-    frequency_variation: 5.0             # ±5Hz随机变化
+    frequency_variation: 20.0             # ±20Hz随机变化
     
     # 动态帧率计算 (提高帧密度确保充分采样)
     min_samples_per_cycle: 48            # 每个闪烁周期最少采样点数 (再次翻倍：1s从2400→4800帧)
