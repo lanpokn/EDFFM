@@ -108,8 +108,8 @@ class FlareEventGenerator:
             print(f"  Time: {generation_time:.2f}s")
             print(f"  File: {filename}")
             
-            # Debug可视化
-            if self.debug_mode and sequence_id < 3:  # 只为前3个序列生成debug
+            # Debug可视化 - 为所有序列生成debug
+            if self.debug_mode:
                 self._save_debug_visualization(flare_events, flare_frames, sequence_id, metadata)
             
             return output_path
@@ -192,34 +192,51 @@ class FlareEventGenerator:
         self._save_sequence_metadata(debug_seq_dir, events, metadata)
     
     def _create_flare_event_visualization(self, events: np.ndarray, output_dir: str, metadata: Dict):
-        """创建炫光事件的多分辨率可视化"""
+        """创建炫光事件的多分辨率可视化 - 基于原始帧率和帧数"""
         if len(events) == 0:
             return
             
-        # 多分辨率策略
+        # 从metadata获取原始帧参数
+        original_fps = metadata.get('fps', 100)  # 原始帧率
+        duration_sec = metadata.get('duration_sec', 0.1)  # 持续时间
+        total_frames = metadata.get('total_frames', int(original_fps * duration_sec))  # 总帧数
+        
+        print(f"    Debug vis: {total_frames} frames, {original_fps}fps, {duration_sec*1000:.1f}ms")
+        
+        # 多分辨率策略 - 基于原始帧间隔
         resolution_scales = [0.5, 1, 2, 4]
+        base_frame_interval_us = 1e6 / original_fps  # 原始帧间间隔(微秒)
         
         for scale in resolution_scales:
             scale_dir = os.path.join(output_dir, f"events_temporal_{scale}x")
             os.makedirs(scale_dir, exist_ok=True)
             
-            # 时间参数
+            # 计算实际积累时间窗口
+            # 1x = 原始帧间隔, 2x = 1/2间隔, 0.5x = 2倍间隔
+            accumulation_window_us = base_frame_interval_us / scale
+            
+            # 生成帧数：
+            # 1x应该是source_frames-1 (因为是帧间积累)
+            # 其他尺度按比例调整
+            if scale == 1.0:
+                vis_frames = max(1, total_frames - 1)
+            else:
+                vis_frames = max(1, int((total_frames - 1) / scale))
+            
+            print(f"      {scale}x: {vis_frames} frames, window={accumulation_window_us/1000:.1f}ms")
+            
+            # 时间范围
             t_min, t_max = events[:, 2].min(), events[:, 2].max()
-            duration_ms = (t_max - t_min) / 1000.0
-            
-            base_window_ms = 10.0
-            window_duration_ms = base_window_ms / scale
-            window_duration_us = window_duration_ms * 1000
-            
-            num_frames = max(10, int(duration_ms / window_duration_ms))
-            frame_step = (t_max - t_min) / num_frames if num_frames > 1 else 0
+            time_step = (t_max - t_min) / vis_frames if vis_frames > 1 else 0
             
             # 生成可视化帧
             resolution = (self.config['data']['resolution_w'], self.config['data']['resolution_h'])
             
-            for frame_idx in range(min(num_frames, 30)):  # 限制30帧
-                frame_start = t_min + frame_idx * frame_step
-                frame_end = frame_start + window_duration_us
+            for frame_idx in range(vis_frames):
+                # 基于原始帧节奏的时间窗口
+                frame_center = t_min + frame_idx * time_step
+                frame_start = frame_center
+                frame_end = frame_start + accumulation_window_us
                 
                 # 过滤事件
                 mask = (events[:, 2] >= frame_start) & (events[:, 2] < frame_end)
@@ -234,8 +251,8 @@ class FlareEventGenerator:
                         x, y = int(x), int(y)
                         
                         if 0 <= x < resolution[0] and 0 <= y < resolution[1]:
-                            # 炫光事件用黄色/橙色
-                            color = (0, 255, 255) if p > 0 else (0, 128, 255)  # BGR格式
+                            # 统一使用红/蓝颜色 (极性区分)
+                            color = (0, 0, 255) if p > 0 else (255, 0, 0)  # ON=红, OFF=蓝
                             frame[y, x] = color
                 
                 # 保存帧

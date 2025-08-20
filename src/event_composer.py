@@ -330,8 +330,8 @@ class EventComposer:
         print(f"    Merged events: {len(merged_events_project):,}")
         print(f"    Time: {composition_time:.2f}s")
         
-        # 7. Debug可视化
-        if self.debug_mode and sequence_id < 3:
+        # 7. Debug可视化 - 为所有序列生成debug
+        if self.debug_mode:
             self._save_debug_visualization(
                 background_events_project, flare_events_project, merged_events_project, 
                 sequence_id, flare_file_path
@@ -398,15 +398,8 @@ class EventComposer:
                         x, y = int(x), int(y)
                         
                         if 0 <= x < resolution[0] and 0 <= y < resolution[1]:
-                            # 根据事件类型选择颜色
-                            if event_type == "background":
-                                color = (0, 0, 255) if p > 0 else (255, 0, 0)  # 红/蓝
-                            elif event_type == "flare":
-                                color = (0, 255, 255) if p > 0 else (0, 128, 255)  # 黄/橙
-                            else:  # merged
-                                # 这里无法区分来源，使用默认颜色
-                                color = (255, 255, 255) if p > 0 else (128, 128, 128)  # 白/灰
-                            
+                            # 统一使用红/蓝颜色 (极性区分)
+                            color = (0, 0, 255) if p > 0 else (255, 0, 0)  # ON=红, OFF=蓝
                             frame[y, x] = color
                 
                 # 保存帧
