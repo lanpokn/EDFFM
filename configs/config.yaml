@@ -22,19 +22,26 @@
 
 # --- 运行设置 (Run Settings) ---
 run:
-  mode: train         # 运行模式: 'train' or 'evaluate'
-  experiment_name: event_denoising_mamba_v1
+  mode: two_step_generation    # 新模式: 'two_step_generation' 
+  experiment_name: event_denoising_mamba_v2_decoupled
 
-# --- 数据管线设置 (Data Pipeline Settings) ---
-data_pipeline:
-  # 🚨 关键开关: 'generate' 或 'load'
-  mode: 'generate'       # 'generate': 实时生成并存档, 'load': 从磁盘加载预生成数据
+# --- 两步生成管线设置 (Two-Step Generation Pipeline) ---
+generation:
+  # Step 1: 炫光事件生成数量
+  num_train_sequences: 10      # 训练用炫光序列数
+  num_val_sequences: 5         # 验证用炫光序列数
+  num_test_sequences: 0        # 测试用炫光序列数 (可选)
   
-  # 'generate'和'load'模式都需要的存档路径
-  h5_archive_path: 'data/generated_h5'
+  # Debug模式参数
+  debug_sequences: 3           # debug模式下的序列数量
+  debug_subdivisions: [0.5, 1, 2, 4]  # debug可视化的时间分辨率
   
-  # 'load'模式下可选的并行加载设置
-  num_workers: 0             # 'generate'模式下必须为0, 'load'模式可以设置为4等
+  # 输出路径配置
+  output_paths:
+    flare_events: "output/data/flare_events"     # Step 1输出：纯炫光事件
+    bg_events: "output/data/bg_events"           # Step 2输出：背景事件
+    merge_events: "output/data/merge_events"     # Step 2输出：合并事件
+    debug_output: "output/debug"                 # Debug可视化输出
   
 # --- 数据集设置 (Data Settings) ---
 data:
