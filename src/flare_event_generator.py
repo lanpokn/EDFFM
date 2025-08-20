@@ -131,18 +131,33 @@ class FlareEventGenerator:
             output_path: 输出文件路径
             metadata: 元数据
         """
+        # 🚨 炫光时间随机偏移：0-20ms，确保总长度不超过100ms
+        if len(events) > 0:
+            import random
+            events_normalized = events.copy()
+            t_min = events_normalized[:, 0].min()
+            events_normalized[:, 0] = events_normalized[:, 0] - t_min  # 先归零
+            
+            # 随机起始时间：0-20ms (0-20000μs)
+            random_start_us = random.uniform(0, 20000)
+            events_normalized[:, 0] = events_normalized[:, 0] + random_start_us
+            
+            print(f"    Flare timing: starts at {random_start_us/1000:.1f}ms (duration: {metadata.get('duration_sec', 0)*1000:.1f}ms)")
+        else:
+            events_normalized = events
+        
         with h5py.File(output_path, 'w') as f:
             # 创建标准DVS格式组织结构
             events_group = f.create_group('events')
             
             # DVS格式：事件数组格式为 [t, x, y, p]
-            events_group.create_dataset('t', data=events[:, 0].astype(np.int64), 
+            events_group.create_dataset('t', data=events_normalized[:, 0].astype(np.int64), 
                                       compression='gzip', compression_opts=9)
-            events_group.create_dataset('x', data=events[:, 1].astype(np.uint16), 
+            events_group.create_dataset('x', data=events_normalized[:, 1].astype(np.uint16), 
                                       compression='gzip', compression_opts=9)
-            events_group.create_dataset('y', data=events[:, 2].astype(np.uint16), 
+            events_group.create_dataset('y', data=events_normalized[:, 2].astype(np.uint16), 
                                       compression='gzip', compression_opts=9)
-            events_group.create_dataset('p', data=events[:, 3].astype(np.int8), 
+            events_group.create_dataset('p', data=events_normalized[:, 3].astype(np.int8), 
                                       compression='gzip', compression_opts=9)
             
             # 保存元数据

@@ -67,17 +67,15 @@ class EventComposer:
             time_window_us=config['data']['time_window_us']
         )
         
-        # 背景事件持续时间配置
-        bg_range = config['data']['randomized_training']['background_duration_range']
-        self.bg_min_duration_ms = bg_range[0] * 1000
-        self.bg_max_duration_ms = bg_range[1] * 1000
+        # 背景事件持续时间：固定100ms匹配炫光最大长度
+        self.bg_duration_ms = 100.0  # 固定100ms
         
         print(f"🚀 EventComposer initialized:")
         print(f"  Flare events input: {self.flare_events_dir}")
         print(f"  Background events output: {self.bg_events_dir}")
         print(f"  Merged events output: {self.merge_events_dir}")
         print(f"  DSEC dataset: {len(self.dsec_dataset)} time windows")
-        print(f"  Background duration: {self.bg_min_duration_ms:.0f}-{self.bg_max_duration_ms:.0f}ms")
+        print(f"  Background duration: {self.bg_duration_ms:.0f}ms (fixed for 100ms total)")
         print(f"  Debug mode: {self.debug_mode}")
     
     def load_flare_events(self, flare_file_path: str) -> np.ndarray:
@@ -105,13 +103,13 @@ class EventComposer:
     
     def generate_background_events(self) -> np.ndarray:
         """
-        生成背景事件
+        生成背景事件 - 固定100ms长度
         
         Returns:
             背景事件数组 [N, 4] 格式 [x, y, t, p] (项目格式)
         """
-        # 随机持续时间
-        duration_ms = random.uniform(self.bg_min_duration_ms, self.bg_max_duration_ms)
+        # 固定100ms时长
+        duration_ms = self.bg_duration_ms
         duration_us = int(duration_ms * 1000)
         
         # 随机选择DSEC样本

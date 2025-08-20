@@ -135,11 +135,15 @@ generation:
     merge_events: "output/data/merge_events"     # Step2输出
 
 data:
-  randomized_training:
-    background_duration_range: [0.05, 0.1]      # 背景事件时长(秒)
-  
   flare_synthesis:
     duration_range: [0.03, 0.08]                # 炫光事件时长(秒)
+    
+# 🆕 时间线设计 (100ms固定总长度)
+timing_design:
+  flare_start_offset: [0, 20]ms                 # 炫光随机起始时间
+  flare_duration: [30, 80]ms                    # 炫光持续时间  
+  total_sequence_length: 100ms                  # 固定总长度
+  background_length: 100ms                      # 背景事件长度(固定)
 ```
 
 ## 📊 数据生成详细信息
@@ -160,10 +164,15 @@ data:
 ### 新输出数据格式 (标准DVS格式)
 ```python
 # 🆕 标准DVS H5文件结构 (所有输出文件统一格式)
-/events/t: (N,) int64     # 时间戳 (微秒，原始精度)
+/events/t: (N,) int64     # 时间戳 (微秒，0-100ms范围)
 /events/x: (N,) uint16    # X坐标 (像素)
 /events/y: (N,) uint16    # Y坐标 (像素)  
 /events/p: (N,) int8      # 极性 {1, -1} (DSEC格式)
+
+# 🆕 时间线设计 (100ms统一时长)
+flare_events/*.h5:    时间戳范围 0-100ms (随机起始偏移0-20ms)
+bg_events/*.h5:       时间戳范围 0-100ms (固定100ms长度)  
+merge_events/*.h5:    时间戳范围 0-100ms (背景+炫光合并)
 
 # 🚫 移除的输出
 # - 不再有features数组 (无特征提取)
