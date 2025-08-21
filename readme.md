@@ -57,7 +57,7 @@ dvs346_k: [2.5, 100, 0.01, 1e-7, 1e-8, 0.001]
 ```
 
 ## 🚀 Quick Start
-
+<!-- pip install moderngl numpy Pillow -->
 ### Prerequisites
 ```bash
 # Use existing environment (CRITICAL - do not create new one)
