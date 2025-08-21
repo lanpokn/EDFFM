@@ -1381,15 +1381,13 @@ class DVSFlareEventGenerator:
                 if 'dvs346_k' in dvs_params:
                     k_values = dvs_params['dvs346_k'].copy()
                     
-                    # 🎯 随机化k1参数 - 在6.265上下2.0波动
+                    # 🎯 随机化k1参数 - 5到16之间随机化
                     import random
-                    k1_base = 6.265
-                    k1_variation = 2.0  # ±2.0波动范围
-                    k1_min = k1_base - k1_variation  # 4.265
-                    k1_max = k1_base + k1_variation  # 8.265
+                    k1_min = 5.0   # 最小值5
+                    k1_max = 16.0  # 最大值16
                     k_values[0] = random.uniform(k1_min, k1_max)
                     
-                    print(f"  Random k1: {k_values[0]:.3f} (base: {k1_base} ±{k1_variation})")
+                    print(f"  Random k1: {k_values[0]:.3f} (range: {k1_min}-{k1_max})")
                     
                     k_str = f"[{', '.join(map(str, k_values))}]"
                     modified_content = re.sub(
