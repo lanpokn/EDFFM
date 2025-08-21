@@ -71,24 +71,34 @@ class FlareGenerator:
         self.texture_output = self.ctx.texture(self.output_size, 3)
         self.fbo = self.ctx.framebuffer(color_attachments=[self.texture_output])
 
-    def generate(self, light_pos, noise_image_path, output_path, time=0.0, flare_size=0.15, light_color=(1.0, 1.0, 1.0)):
+    def generate(self, light_pos, noise_image_path, time=0.0, flare_size=0.15, light_color=(1.0, 1.0, 1.0)):
+        """
+        生成一张炫光图像并将其作为PIL Image对象返回。
+        :return: PIL.Image.Image 对象
+        """
         noise_img = Image.open(noise_image_path).convert("RGBA")
         noise_texture = self.ctx.texture(noise_img.size, 4, noise_img.tobytes())
         noise_texture.use(0)
+        
         self.fbo.use()
         self.fbo.clear(0.0, 0.0, 0.0, 1.0)
+        
         self.program['u_resolution'].value = self.output_size
         self.program['u_light_pos'].value = light_pos
         self.program['u_time'].value = time
         self.program['u_light_color'].value = light_color
         self.program['u_flare_size'].value = flare_size
         self.program['u_noise_texture'].value = 0
+        
         self.vao.render(moderngl.TRIANGLE_STRIP)
+        
         image = Image.frombytes('RGB', self.fbo.size, self.fbo.read(), 'raw', 'RGB', 0, -1)
-        image.save(output_path)
-        # 更新打印信息，使其更简洁
-        print(f"  -> 已生成: {os.path.basename(output_path)}")
+        
+        # 释放GPU资源
         noise_texture.release()
+        
+        # 返回内存中的Image对象
+        return image
 
 # --- 如何使用 (已更新为批量生成模式) ---
 if __name__ == '__main__':
@@ -99,12 +109,10 @@ if __name__ == '__main__':
     OUTPUT_DIR = 'R_flare'
 
     # --- 准备工作 ---
-    # 1. 检查并创建输出目录
     if not os.path.isdir(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         print(f"已创建输出文件夹: '{OUTPUT_DIR}'")
 
-    # 2. 检查并加载可用的图片源
     if not os.path.isdir(TEXTURE_SOURCE_DIR):
         raise FileNotFoundError(f"错误：找不到图片源文件夹 '{TEXTURE_SOURCE_DIR}'。")
     available_textures = [f for f in os.listdir(TEXTURE_SOURCE_DIR) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
@@ -112,51 +120,46 @@ if __name__ == '__main__':
         raise FileNotFoundError(f"错误：文件夹 '{TEXTURE_SOURCE_DIR}' 中没有任何图片文件。")
     print(f"在 '{TEXTURE_SOURCE_DIR}' 中找到了 {len(available_textures)} 个可用的图片源。")
 
-    # 3. 实例化生成器
     generator = FlareGenerator(output_size=OUTPUT_RESOLUTION)
 
     # --- 开始批量生成 ---
     print(f"\n--- 准备批量生成 {NUM_TO_GENERATE} 张炫光图像 ---")
     
     for i in range(1, NUM_TO_GENERATE + 1):
-        # --- 在每次循环中，完全随机化所有参数 ---
-
-        # 1. 随机选择一个图片源
         source_texture_name = random.choice(available_textures)
         source_path = os.path.join(TEXTURE_SOURCE_DIR, source_texture_name)
         
-        # 2. 随机化光源位置 (在画面边界内)
         light_pos_x = random.randint(0, generator.width)
         light_pos_y = random.randint(0, generator.height)
         
-        # 3. 随机化炫光大小和颜色
         flare_size = random.uniform(0.05, 0.35)
-        # 生成更鲜艳的颜色，避免暗色
         r = random.uniform(0.6, 1.0)
         g = random.uniform(0.6, 1.0)
         b = random.uniform(0.6, 1.0)
         light_color = (r, g, b)
 
-        # 4. 随机化时间种子
         time_seed = random.uniform(0, 500)
 
-        # 5. 定义唯一的输出文件名
-        # 格式: 001_from_texture_name.png
         base_texture_name = os.path.splitext(source_texture_name)[0]
         output_filename = f"{i:03d}_from_{base_texture_name}.png"
         output_path = os.path.join(OUTPUT_DIR, output_filename)
 
         print(f"\n[正在生成 {i}/{NUM_TO_GENERATE}] 使用图片源: '{source_texture_name}'")
 
-        # 6. 调用生成函数
-        generator.generate(
+        # --- 新的工作流 ---
+        # 1. 调用generate函数，它现在只负责生成并返回一个Image对象
+        generated_image = generator.generate(
             light_pos=(light_pos_x, light_pos_y),
             noise_image_path=source_path,
-            output_path=output_path,
             time=time_seed,
             flare_size=flare_size,
             light_color=light_color
         )
+        
+        # 2. 由外部逻辑（main函数）负责保存图片
+        generated_image.save(output_path)
+        print(f"  -> 已生成并保存到: {output_path}")
+        # --------------------
 
     print("\n--------------------")
     print(f"成功生成 {NUM_TO_GENERATE} 张炫光图像！")
