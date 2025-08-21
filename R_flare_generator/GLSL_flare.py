@@ -1,7 +1,8 @@
-# from https://www.shadertoy.com/view/lsBGDKimport moderngl
 import moderngl
 import numpy as np
 from PIL import Image
+import os
+import random
 
 class FlareGenerator:
     """
@@ -9,12 +10,9 @@ class FlareGenerator:
     """
     def __init__(self, output_size=(1920, 1080)):
         self.output_size = output_size
-        self.width, self.height = self.output_size
-
-        # 在Windows上，不需要指定后端，让moderngl自动选择即可
+        self.width, self.height = output_size
         self.ctx = moderngl.create_standalone_context()
 
-        # 顶点着色器
         vertex_shader = """
             #version 330
             in vec2 in_vert;
@@ -23,7 +21,6 @@ class FlareGenerator:
             }
         """
         
-        # 片段着色器
         fragment_shader = """
             #version 330 core
             uniform vec2 u_resolution;
@@ -34,14 +31,10 @@ class FlareGenerator:
             uniform sampler2D u_noise_texture;
             out vec4 fragColor;
             
-            // --- [代码修正处] ---
-            // 我们需要恢复所有被flare函数用到的noise重载函数
             vec4 noise(vec2 p){ return texture(u_noise_texture, p / textureSize(u_noise_texture, 0)); }
             vec4 noise(float p){ return texture(u_noise_texture, vec2(p/textureSize(u_noise_texture, 0).x, 0.0));}
-            // --------------------
 
             vec3 flare(vec2 uv, vec2 pos, float seed, float size) {
-                // ... (完整的flare函数代码粘贴在这里) ...
                 vec4 gn = noise(seed-1.0); gn.x = size; vec3 c = vec3(.0); vec2 p = pos; vec2 d = uv-p;
                 c += (0.01+gn.x*.2)/(length(d)+0.001); c += vec3(noise(atan(d.y,d.x)*256.9+pos.x*2.0).y*.25)*c;
                 float fltr = length(uv); fltr = (fltr*fltr)*.5+.5; fltr = min(fltr,1.0);
@@ -72,11 +65,9 @@ class FlareGenerator:
         """
 
         self.program = self.ctx.program(vertex_shader=vertex_shader, fragment_shader=fragment_shader)
-
         vertices = np.array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0], dtype='f4')
         self.vbo = self.ctx.buffer(vertices)
         self.vao = self.ctx.simple_vertex_array(self.program, self.vbo, 'in_vert')
-
         self.texture_output = self.ctx.texture(self.output_size, 3)
         self.fbo = self.ctx.framebuffer(color_attachments=[self.texture_output])
 
@@ -95,38 +86,79 @@ class FlareGenerator:
         self.vao.render(moderngl.TRIANGLE_STRIP)
         image = Image.frombytes('RGB', self.fbo.size, self.fbo.read(), 'raw', 'RGB', 0, -1)
         image.save(output_path)
-        print(f"炫光图像已生成并保存到: {output_path}")
+        # 更新打印信息，使其更简洁
+        print(f"  -> 已生成: {os.path.basename(output_path)}")
         noise_texture.release()
 
-# --- 如何使用 ---
+# --- 如何使用 (已更新为批量生成模式) ---
 if __name__ == '__main__':
-    # 为了让脚本能独立运行，我们先程序化地创建一个噪声图
-    def create_noise_texture(path='noise.png', size=(256, 256)):
-        img_array = np.random.randint(0, 256, (size[1], size[0], 3), dtype=np.uint8)
-        img = Image.fromarray(img_array)
-        img.save(path)
-        print(f"已创建随机噪声纹理: {path}")
+    # --- 配置参数 ---
+    NUM_TO_GENERATE = 20
+    OUTPUT_RESOLUTION = (1280, 720)
+    TEXTURE_SOURCE_DIR = 'noise_textures'
+    OUTPUT_DIR = 'R_flare'
 
-    create_noise_texture()
+    # --- 准备工作 ---
+    # 1. 检查并创建输出目录
+    if not os.path.isdir(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+        print(f"已创建输出文件夹: '{OUTPUT_DIR}'")
 
-    # 1. 实例化生成器，可以指定输出分辨率
-    generator = FlareGenerator(output_size=(1280, 720))
+    # 2. 检查并加载可用的图片源
+    if not os.path.isdir(TEXTURE_SOURCE_DIR):
+        raise FileNotFoundError(f"错误：找不到图片源文件夹 '{TEXTURE_SOURCE_DIR}'。")
+    available_textures = [f for f in os.listdir(TEXTURE_SOURCE_DIR) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    if not available_textures:
+        raise FileNotFoundError(f"错误：文件夹 '{TEXTURE_SOURCE_DIR}' 中没有任何图片文件。")
+    print(f"在 '{TEXTURE_SOURCE_DIR}' 中找到了 {len(available_textures)} 个可用的图片源。")
 
-    # 2. 调用generate函数，像调用一个普通Python函数一样！
-    generator.generate(
-        light_pos=(900, 300),           # 光源在图像右侧
-        noise_image_path='noise.png',
-        output_path='flare_output_1.png',
-        time=15.5,                      # 不同的时间会产生不同的炫光细节
-        flare_size=0.2,                 # 稍大的炫光
-        light_color=(1.0, 0.8, 0.6)     # 温暖的橙色光
-    )
+    # 3. 实例化生成器
+    generator = FlareGenerator(output_size=OUTPUT_RESOLUTION)
 
-    generator.generate(
-        light_pos=(100, 600),           # 光源在图像左下角
-        noise_image_path='noise.png',
-        output_path='flare_output_2.png',
-        time=30.2,
-        flare_size=0.1,                 # 较小的炫光
-        light_color=(0.7, 0.8, 1.0)     # 冷色的蓝色光
-    )
+    # --- 开始批量生成 ---
+    print(f"\n--- 准备批量生成 {NUM_TO_GENERATE} 张炫光图像 ---")
+    
+    for i in range(1, NUM_TO_GENERATE + 1):
+        # --- 在每次循环中，完全随机化所有参数 ---
+
+        # 1. 随机选择一个图片源
+        source_texture_name = random.choice(available_textures)
+        source_path = os.path.join(TEXTURE_SOURCE_DIR, source_texture_name)
+        
+        # 2. 随机化光源位置 (在画面边界内)
+        light_pos_x = random.randint(0, generator.width)
+        light_pos_y = random.randint(0, generator.height)
+        
+        # 3. 随机化炫光大小和颜色
+        flare_size = random.uniform(0.05, 0.35)
+        # 生成更鲜艳的颜色，避免暗色
+        r = random.uniform(0.6, 1.0)
+        g = random.uniform(0.6, 1.0)
+        b = random.uniform(0.6, 1.0)
+        light_color = (r, g, b)
+
+        # 4. 随机化时间种子
+        time_seed = random.uniform(0, 500)
+
+        # 5. 定义唯一的输出文件名
+        # 格式: 001_from_texture_name.png
+        base_texture_name = os.path.splitext(source_texture_name)[0]
+        output_filename = f"{i:03d}_from_{base_texture_name}.png"
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+        print(f"\n[正在生成 {i}/{NUM_TO_GENERATE}] 使用图片源: '{source_texture_name}'")
+
+        # 6. 调用生成函数
+        generator.generate(
+            light_pos=(light_pos_x, light_pos_y),
+            noise_image_path=source_path,
+            output_path=output_path,
+            time=time_seed,
+            flare_size=flare_size,
+            light_color=light_color
+        )
+
+    print("\n--------------------")
+    print(f"成功生成 {NUM_TO_GENERATE} 张炫光图像！")
+    print(f"所有文件已保存到 '{OUTPUT_DIR}' 文件夹中。")
+    print("--------------------")
