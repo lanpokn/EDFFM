@@ -67,6 +67,9 @@ EventMamba-FX-Two-Step-Generator/
 │   └── [legacy files]               # 旧文件保留，不再使用
 ├── simulator/
 │   └── DVS-Voltmeter-main/          # DVS物理仿真器 ✅
+├── R_flare_generator/               # 反射炫光生成器 🆕
+│   ├── generate_UE.py               # UE5自动化炫光视频生成脚本
+│   └── test_UE.py                   # UE5属性诊断测试脚本
 ├── data/
 │   └── bg_events/                   # DSEC背景事件(输入) ✅
 └── output/
@@ -161,6 +164,16 @@ timing_design:
 - **时间窗口**: 30-80ms随机长度 + 0-20ms随机起始偏移
 - **图像源**: Flare7K数据集，5962张炫光图像
 - **闪烁频率**: 100-120Hz基频 ±20Hz变化 (更大变化范围)
+
+### 🆕 反射炫光生成器 (R_flare_generator)
+- **目标**: 生成反射炫光仿真数据，补充当前系统的炫光类型覆盖
+- **技术路径**: UE5自动化方案 (试验中)
+- **核心组件**:
+  - `generate_UE.py`: UE5自动化炫光视频生成脚本，支持随机相机轨迹和参数化炫光效果
+  - `test_UE.py`: UE5 API属性诊断脚本，用于调试MRQ渲染管线
+- **输出格式**: 视频序列（PNG帧序列，可转换为MP4）
+- **状态**: 开发中，存在技术难题待解决
+- **未来扩展**: 可能添加其他反射炫光生成方法（非UE5方案）
 
 ### 新输出数据格式 (标准DVS格式)
 ```python
@@ -309,6 +322,7 @@ data/bg_events/                       # DSEC背景数据 ✅
 ✅ 复用文件: 保持原有功能不变
 🔒 保留文件: 旧架构文件保留但不再使用 (如unified_dataset.py)
 🗑️ 无需文件: feature_extractor.py等后处理相关 (功能已移除)
+🧪 试验文件: R_flare_generator/中的UE5相关代码 (开发中)
 ```
 
 ## 🆕 新架构核心优势
