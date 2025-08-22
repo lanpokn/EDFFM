@@ -8,12 +8,14 @@ EventMamba-FX Two-Step Event Generator是一个**解耦的事件数据生成系�
 ## Environment Setup 🔧 CRITICAL
 - **MUST USE**: `source /home/lanpoknlanpokn/miniconda3/bin/activate event_flare`
 - 环境包含必需依赖：PyTorch, NumPy, H5py, OpenCV, YAML, tqdm等
-- Python 3.10.18，无需GPU（数据生成为CPU密集型）
+- Python 3.10.18，推荐GPU环境（GLSL反射炫光生成需要CUDA加速）
 
-## 🚀 系统状态：两步解耦架构 (2025-08-20 重构完成)
+## 🚀 系统状态：两步解耦架构 + 散射反射炫光融合
 
-### ✅ 新架构核心特性
-- **Step 1**: 独立炫光事件生成器 → `output/data/flare_events/*.h5`
+### ✅ 核心架构特性
+- **Step 1**: 散射+反射炫光融合生成器 → `output/data/flare_events/*.h5`
+  - Flare7K散射炫光 + GLSL反射炫光融合
+  - 光源检测自动生成连续反射效果
 - **Step 2**: 事件合成器 → `output/data/bg_events/*.h5` + `output/data/merge_events/*.h5`
 - **标准DVS格式**: `/events/t, /events/x, /events/y, /events/p`
 - **无特征提取**: 输出原始事件数据，无任何后处理
@@ -22,7 +24,7 @@ EventMamba-FX Two-Step Event Generator是一个**解耦的事件数据生成系�
 
 ### 📊 新输出格式 (标准DVS H5格式)
 ```bash
-# Step 1 输出：纯炫光事件
+# Step 1 输出：散射+反射融合炫光事件
 output/data/flare_events/flare_sequence_xxx.h5
 ├── /events/t  [N] int64    # 时间戳 (微秒)
 ├── /events/x  [N] uint16   # X坐标
@@ -67,9 +69,11 @@ EventMamba-FX-Two-Step-Generator/
 │   └── [legacy files]               # 旧文件保留，不再使用
 ├── simulator/
 │   └── DVS-Voltmeter-main/          # DVS物理仿真器 ✅
-├── R_flare_generator/               # 反射炫光生成器 🆕
-│   ├── generate_UE.py               # UE5自动化炫光视频生成脚本
-│   └── test_UE.py                   # UE5属性诊断测试脚本
+├── R_flare_generator/               # 反射炫光生成器 ✅
+│   ├── GLSL_flare_ultra_fast_gpu.py # 主要：极致优化GPU反射炫光生成器
+│   ├── test_light_continuity_center.py # 连续性测试脚本
+│   ├── generate_UE.py               # UE5方案 (一般不用)
+│   └── test_UE.py                   # UE5测试 (一般不用)
 ├── data/
 │   └── bg_events/                   # DSEC背景事件(输入) ✅
 └── output/
@@ -82,27 +86,31 @@ EventMamba-FX-Two-Step-Generator/
         └── event_composition/       # Step2 debug
 ```
 
-### 新数据流程 (完全解耦)
+### 新数据流程 (散射+反射融合)
 ```mermaid
 graph TD
-    subgraph "Step 1: 炫光事件生成"
-        A[Flare7K图像] --> B[炫光序列合成]
-        B --> C[DVS物理仿真]
-        C --> D[纯炫光事件]
-        D --> E[flare_events/*.h5]
+    subgraph "Step 1: 散射+反射炫光融合生成"
+        A[Flare7K散射图像] --> B[炫光序列合成]
+        B --> C[光源检测]
+        C --> D[GLSL反射炫光生成]
+        B --> E[散射+反射融合]
+        D --> E
+        E --> F[DVS物理仿真]
+        F --> G[融合炫光事件]
+        G --> H[flare_events/*.h5]
     end
     
     subgraph "Step 2: 事件合成"
-        F[DSEC背景事件] --> H[事件合成器]
-        E --> H
-        H --> I[bg_events/*.h5]
-        H --> J[merge_events/*.h5]
+        I[DSEC背景事件] --> K[事件合成器]
+        H --> K
+        K --> L[bg_events/*.h5]
+        K --> M[merge_events/*.h5]
     end
     
     subgraph "Debug可视化"
-        D --> K[Step1 Debug]
-        I --> L[Step2 Debug]
-        J --> L
+        G --> N[Step1 Debug]
+        L --> O[Step2 Debug]
+        M --> O
     end
 ```
 
@@ -165,33 +173,30 @@ timing_design:
 - **图像源**: Flare7K数据集，5962张炫光图像
 - **闪烁频率**: 100-120Hz基频 ±20Hz变化 (更大变化范围)
 
-### 🆕 反射炫光生成器 (R_flare_generator)
-- **目标**: 生成反射炫光仿真数据，补充当前系统的炫光类型覆盖
-- **核心功能**: 现有系统只能生成散射炫光，缺少反射炫光类型
-- **主要组件**:
-  - `GLSL_flare.py`: ✅ **GPU加速反射炫光生成器** (生产就绪)
-    - 基于GLSL shader的实时炫光仿真
-    - 精确解耦控制：光源辉光 vs 反射鬼影
-    - 支持程序化噪声纹理 (500+ Perlin/Voronoi/真实纹理)
-    - **专门用于补充生成反射炫光，不替换现有Flare7K方法**
-  - `generate_procedural_noise.py`: 生成多样化噪声纹理库
-  - `generate_UE.py`: UE5自动化方案 (试验暂停)
-  - `test_UE.py`: UE5诊断工具 (试验暂停)
-- **输出格式**: PNG图像序列，与现有炫光图像格式兼容
-- **状态**: GLSL方案已就绪，UE5方案暂停
+### ✅ 反射炫光生成器 (R_flare_generator)
+- **功能**: 已成功集成到Step1，自动生成反射炫光补充散射炫光
+- **核心组件**:
+  - `GLSL_flare_ultra_fast_gpu.py`: ✅ **主要使用** - 极致优化GPU反射炫光生成器
+    - PyTorch CUDA实现，11.70 FPS性能
+    - 基于GLSL shader算法的完整移植
+    - 支持连续光源跟踪和固定种子生成
+    - 与现有Flare7K散射炫光无缝融合
+  - `test_light_continuity_center.py`: 连续性验证脚本
+- **集成方式**: 自动检测散射炫光中的光源位置和颜色，生成对应反射效果
+- **状态**: ✅ 已集成到主流程，默认启用
 
 ### 新输出数据格式 (标准DVS格式)
 ```python
-# 🆕 标准DVS H5文件结构 (所有输出文件统一格式)
+# 标准DVS H5文件结构 (所有输出文件统一格式)
 /events/t: (N,) int64     # 时间戳 (微秒，0-100ms范围)
 /events/x: (N,) uint16    # X坐标 (像素)
 /events/y: (N,) uint16    # Y坐标 (像素)  
 /events/p: (N,) int8      # 极性 {1, -1} (DSEC格式)
 
-# 🆕 时间线设计 (100ms统一时长)
-flare_events/*.h5:    时间戳范围 0-100ms (随机起始偏移0-20ms)
-bg_events/*.h5:       时间戳范围 0-100ms (固定100ms长度)  
-merge_events/*.h5:    时间戳范围 0-100ms (背景+炫光合并)
+# 时间线设计 (100ms统一时长)
+flare_events/*.h5:    散射+反射融合炫光事件，时间戳 0-100ms
+bg_events/*.h5:       DSEC背景事件，时间戳 0-100ms  
+merge_events/*.h5:    背景+炫光合并事件，时间戳 0-100ms
 
 # 🚫 移除的输出
 # - 不再有features数组 (无特征提取)
@@ -370,36 +375,31 @@ ls -la output/data/merge_events/
 ls -la output/debug/
 ```
 
-### 🎯 新架构核心记忆点
-- ✅ **两步解耦**: Step1生成炫光，Step2合成事件
+### 🎯 核心记忆点
+- ✅ **两步解耦**: Step1散射+反射融合炫光生成，Step2事件合成
 - ✅ **标准DVS格式**: `/events/t,x,y,p` 原始数据输出
 - ✅ **100ms统一时长**: 所有输出文件时间戳范围0-100ms
-- ✅ **随机化增强**: k1参数5-16随机, 频率变化±20Hz, 炫光起始0-20ms偏移
+- ✅ **散射+反射融合**: Flare7K散射炫光自动检测光源生成GLSL反射炫光
+- ✅ **连续性保证**: 序列级固定种子，向量化光源检测
 - ✅ **无后处理**: 移除特征提取和标签生成
-- ✅ **独立调试**: 每步可单独运行和调试，debug覆盖所有序列
-- ✅ **灵活扩展**: 便于修改合成策略和参数
+- ✅ **独立调试**: 每步可单独运行和调试
 
-### 🆕 最新参数设置 (2025-08-20 更新)
+### 🎯 关键参数设置
 ```yaml
 # DVS仿真参数
-k1_randomization: 5.0 - 16.0     # 5-16随机范围 (大幅扩展事件数量变化范围)
-flare_frequency: 100-120Hz ± 20Hz # 80-140Hz总范围 (更大频率变化)
+k1_randomization: 5.0 - 16.0     # 扩大事件数量变化范围
+flare_frequency: 100-120Hz ± 20Hz # 更大频率变化范围
 
 # 时间线设计  
 flare_duration: 30-80ms          # 炫光持续时间
 flare_start_offset: 0-20ms       # 随机起始偏移
-background_duration: 100ms       # 固定背景长度
 total_sequence_length: 100ms     # 统一输出长度
 
-# Debug设置
-debug_all_sequences: true        # 所有序列都有debug输出
-visualization_colors: red/blue   # 统一极性颜色编码
-temporal_scales: [0.5,1,2,4]x   # 多分辨率时间分析
-
-# 🆕 炫光移动设定
-flare_movement_amplitude: 0-180px # 最大移动180像素 (~28%画面宽度)
-initial_position_translate: 20%   # 初始位置平移范围
-boundary_margin: 50px             # 边界保护区域
+# 散射+反射融合设定
+glsl_reflection_enabled: true    # 启用GLSL反射炫光
+sequence_fixed_seed: true        # 序列级固定种子确保连续性
+light_detection_pixels: 50       # 光源检测使用最亮50像素
+vectorized_processing: true      # 向量化光源检测优化
 ```
 
 ## 📝 TODO - 未来重大架构改动计划
@@ -475,122 +475,19 @@ graph TD
 - **阶段3**: 重构Step 2事件合成策略
 - **阶段4**: 完整测试和debug可视化适配
 
-## 🎯 GLSL反射炫光生成器完整解决方案 (2025-08-22)
 
-### ✅ 完整四版本架构：从CPU到GPU的完整解决方案
+## ✅ 散射+反射炫光融合系统
 
-#### 🎯 版本对比表
-| 版本 | 技术栈 | 性能 (640x480) | 状态 | 适用场景 |
-|------|-------|--------------|------|---------|
-| **GLSL_flare.py** | ModernGL + GLSL | >100 FPS | ✅ 生产 | Windows实时渲染 |
-| **perfect_python.py** | NumPy向量化 | 2.26 FPS | ✅ 备选 | CPU环境 |
-| **perfect_gpu.py** | PyTorch CUDA | 9.97 FPS | ✅ 备选 | WSL/Linux GPU |
-| **ultra_fast_gpu.py** 🏆 | 极致优化CUDA | **11.70 FPS** | ✅ **推荐** | **最佳WSL性能** |
-
-#### 🚀 极致优化版本核心优势 (2025-08-22)
-```python
-# 🏆 极致优化版本 (推荐) - GLSL_flare_ultra_fast_gpu.py
-generator = FlareGeneratorUltraFastGPU(output_size=(640, 480))
-img = generator.generate(
-    light_pos=(320, 240),
-    noise_image_path="texture.jpg", 
-    time=10.0,                    # seed参数控制变化
-    flare_size=0.2,              # 炫光尺寸
-    generate_main_glow=False,     # 专注反射炫光  
-    generate_reflections=True     # 主要特效
-)
-# ⚡ 性能: 11.70 FPS，16.7倍总体加速，保持算法完整性！
-```
-
-#### 🔧 极致优化技术要点 (2025-08-22)
-**在保持算法完整性前提下的性能提升**：
-1. **预计算优化** ✅
-   - UV坐标网格预计算
-   - 张量预分配避免动态内存
-   - 批量噪声采样
-   
-2. **向量化改进** ✅
-   - 双重循环完全向量化
-   - 减少CPU-GPU数据传输
-   - 纹理缓存复用
-   
-3. **算法保持** ✅  
-   - 20个完整反射计算
-   - 原始GLSL算法逻辑不变
-   - 100%视觉效果保真度
-
-#### 📁 完整文件结构
-```
-R_flare_generator/
-├── GLSL_flare.py                         # Windows原生GPU版本
-├── GLSL_flare_perfect_cpu.py             # 淘汰：Numba CPU版本  
-├── GLSL_flare_perfect_python.py          # NumPy向量化版本
-├── GLSL_flare_perfect_gpu.py             # 🏆 PyTorch GPU版本 (推荐)
-├── generate_procedural_noise.py          # 噪声纹理生成器
-├── test_light_continuity.py              # 连续性测试脚本
-├── performance_comparison.py             # 性能对比测试
-├── noise_textures/                       # 500+噪声纹理库
-├── R_flare_diversity_test_50/            # 50张多样性测试
-├── R_flare_light_continuity_test/        # 50张连续性测试
-└── R_flare_fixed_algorithm_test/         # 算法修复验证
-```
-
-#### 🎯 推荐使用方案 (2025-08-22 更新)
-```bash
-# 环境激活
-source /home/lanpoknlanpokn/miniconda3/bin/activate event_flare
-
-# 🏆 首选：极致优化GPU版本 (WSL环境)
-python GLSL_flare_ultra_fast_gpu.py   # 11.70 FPS，最佳平衡！
-
-# 备选：Windows原生版本  
-python GLSL_flare.py                  # >100 FPS，需要ModernGL
-
-# 其他备选方案
-python GLSL_flare_perfect_gpu.py      # 9.97 FPS，基础GPU版本
-python GLSL_flare_perfect_python.py   # 2.26 FPS，CPU备选
-```
-
-#### 📊 性能优化记录 (2025-08-22)
-```
-原版CPU (0.7 FPS) → 极致优化GPU (11.70 FPS)
-总体提升: 16.7倍加速 ⚡
-保持完整性: 20个完整反射，100%算法保真
-最佳平衡: 性能提升 + 算法完整性
-```
-
-### 📊 性能基准测试结果
-```
-测试配置: 320x240 像素
-Windows GLSL版本: >100 FPS (实时级别)
-WSL CPU版本: 0.7 FPS (相对效率 0.7%)
-
-结论:
-✅ CPU版本完美复刻GLSL算法和视觉效果
-✅ 解决了WSL中ModernGL无法运行的问题  
-⚠️  CPU版本适合离线批量生成，不适合实时应用
-```
-
-### 🔄 现有系统集成策略 (不替换现有方法)
-- **Flare7K数据集**: 继续用于散射类型炫光生成
-- **GLSL生成器**: 专门补充反射类型炫光
-- **环境自适应**: Windows用GPU版本，WSL用CPU版本
-- **最终目标**: 在事件合成阶段混合散射+反射炫光类型
-
----
-
-## 🚀 散射+反射炫光融合系统 (2025-08-22 最终版)
-
-### ✅ 核心技术实现
+### 核心技术实现
 **完整炫光生成流程**：
 ```
-Flare7K散射炫光 → 光源检测 → GLSL反射炫光生成 → 融合叠加 → 完整炫光视频 → DVS仿真 → H5事件数据
+Flare7K散射炫光 → 光源检测 → GLSL反射炫光生成 → 融合叠加 → DVS仿真 → H5事件数据
 ```
 
 **关键技术要点**：
 1. **反射炫光连续性**: 序列级固定参数（噪声纹理、尺寸、种子）确保平滑变化
 2. **光源检测优化**: 最亮50像素平均位置 + 炫光区域颜色平均（向量化实现）
-3. **DVS仿真增强**: 超时300s，k1参数非等概率分布(50%低敏感度5-7，50%高敏感度7-16)
+3. **DVS仿真增强**: 超时300s，k1参数非等概率分布优化
 
 **核心认知**：GLSL的time参数是随机种子（非时间），需保持固定；只有light_pos变化实现平滑移动
 
@@ -599,12 +496,3 @@ Flare7K散射炫光 → 光源检测 → GLSL反射炫光生成 → 融合叠加
 - ✅ **性能优化**: 向量化光源检测，消除Python循环瓶颈  
 - ✅ **连续性保证**: 参照test_light_continuity_center.py实现平滑反射变化
 - ✅ **错误处理**: GLSL失败不影响散射炫光正常生成
-
-**预期输出**：
-```bash
-Frame X: Added reflection flare at (x,y) (top50), color=[r,g,b] (avg), intensity=X.XXX, seed=XX.X
-```
-
-*最新更新: 2025-08-22 - 散射+反射炫光融合系统完成，性能优化和k1分布改进*
-*历史更新: 2025-08-20 - k1参数扩展到5-16随机范围，加强事件数量多样性*
-*TODO添加: 2025-08-20 - 双事件生成与智能合成架构改动规划*
