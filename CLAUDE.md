@@ -604,10 +604,18 @@ Flare7K散射炫光 → 光源检测 → GLSL反射炫光生成 → 融合叠加
 - ✅ GLSL生成器自动初始化，支持411种噪声纹理
 - ✅ 光源检测算法鲁棒，处理各种亮度条件
 - ✅ 错误处理完善，GLSL失败不影响散射炫光生成
-- ❌ **严重问题**: 反射炫光不连续变化，每帧都是独立随机生成
-  - 问题根源: time_seed = random.random() * 50 导致帧间无连续性
-  - 真实反射炫光应该连续变化，而非跳跃式随机
-  - 需要修复: 使用连续的time参数确保帧间平滑过渡
+- ✅ **问题已修复**: 反射炫光连续性问题解决 (2025-08-22)
+  - **问题根源**: 
+    - time_seed = random.random() * 50 → 每帧完全随机
+    - noise_texture = random.choice() → 每帧随机纹理  
+    - flare_size = random.uniform() → 每帧随机尺寸
+  - **修复方案**: 序列级固定参数 + 固定种子（关键认知修正）
+    - sequence_noise_texture: 整个序列使用同一纹理
+    - sequence_flare_size: 整个序列使用同一尺寸  
+    - sequence_time_seed: 整个序列使用固定种子（非连续时间！）
+    - **核心理解**: time参数是随机种子，应保持固定；只有light_pos变化实现平滑移动
+  - **修复文件**: src/flare_synthesis.py:592-668, 新增_generate_reflection_flare_continuous()
+  - **验证**: 参照test_light_continuity_center.py的连续性表现
 
 ### 🎯 验证结果
 ```bash

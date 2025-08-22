@@ -263,6 +263,52 @@ class FlareFlickeringSynthesizer:
             # 静默处理错误，避免中断主流程
             return None
     
+    def _generate_reflection_flare_continuous(self, light_pos: Tuple[int, int], 
+                                            light_color: Tuple[float, float, float],
+                                            intensity_multiplier: float,
+                                            noise_texture_path: str,
+                                            flare_size: float,
+                                            time_seed: float) -> Optional[np.ndarray]:
+        """
+        使用GLSL生成连续性反射炫光（修复版 - 固定种子）
+        
+        Args:
+            light_pos: 光源位置 (x, y) - 唯一变化的参数！
+            light_color: 光源颜色 (r, g, b)
+            intensity_multiplier: 强度系数A（与散射炫光相同的频闪系数）
+            noise_texture_path: 固定的噪声纹理路径
+            flare_size: 固定的炫光尺寸
+            time_seed: 固定的随机种子（不是时间！）
+            
+        Returns:
+            反射炫光图像 [H, W, 3] uint8格式, 或None
+        """
+        if self.glsl_generator is None:
+            return None
+            
+        try:
+            # 生成反射炫光（关键：只有light_pos变化，其他参数全部固定）
+            reflection_pil = self.glsl_generator.generate(
+                light_pos=light_pos,                # 唯一变化参数 - 跟随光源移动
+                noise_image_path=noise_texture_path, # 序列级固定
+                time=time_seed,                     # 序列级固定种子（不变！）
+                flare_size=flare_size,              # 序列级固定
+                light_color=light_color,            # 检测的光源颜色
+                generate_main_glow=False,           # 不生成主光源
+                generate_reflections=True           # 只生成反射
+            )
+            
+            # 转换为numpy并应用强度系数
+            reflection_array = np.array(reflection_pil).astype(np.float32)
+            reflection_scaled = reflection_array * intensity_multiplier
+            reflection_final = np.clip(reflection_scaled, 0, 255).astype(np.uint8)
+            
+            return reflection_final
+            
+        except Exception as e:
+            # 静默处理错误，避免中断主流程
+            return None
+    
     def get_realistic_flicker_frequency(self) -> float:
         """Get a realistic flicker frequency based on real-world power grid standards.
         
@@ -588,6 +634,19 @@ class FlareFlickeringSynthesizer:
         scale_range = self.synthesis_config.get('intensity_scale', [1.0, 1.0])
         global_scale_factor = random.uniform(scale_range[0], scale_range[1])  # 整个序列统一缩放
         
+        # 🚀 反射炫光连续性修复：整个序列使用固定参数（重要：time是种子而非时间）
+        if self.glsl_generator is not None and len(self.noise_textures) > 0:
+            # 为整个序列选择固定的反射炫光参数
+            sequence_noise_texture = random.choice(self.noise_textures)  # 序列级固定噪声纹理
+            sequence_flare_size = random.uniform(0.15, 0.25)  # 序列级固定尺寸
+            sequence_time_seed = random.random() * 50  # 序列级固定种子（非时间！）
+            print(f"  Reflection sequence params: noise={os.path.basename(sequence_noise_texture)}, "
+                  f"size={sequence_flare_size:.3f}, seed={sequence_time_seed:.1f}")
+        else:
+            sequence_noise_texture = None
+            sequence_flare_size = 0.2
+            sequence_time_seed = 0.0
+        
         frames = []
         
         for frame_idx, intensity_multiplier in enumerate(flicker_curve):
@@ -637,17 +696,21 @@ class FlareFlickeringSynthesizer:
             final_frame_pil = self.final_crop_transform(moved_frame_pil)
             final_frame = np.array(final_frame_pil)
             
-            # 🚨 新增：散射炫光 + 反射炫光融合
+            # 🚨 新增：散射炫光 + 反射炫光融合（连续性修复版）
             # 4. 检测光源位置和颜色，生成反射炫光并叠加
-            if self.glsl_generator is not None and len(self.noise_textures) > 0:
+            if sequence_noise_texture is not None:
                 try:
                     # 从当前散射炫光帧检测光源
                     light_pos, light_color = self._detect_light_source_from_frame(final_frame)
                     
                     if light_pos is not None:
-                        # 生成反射炫光（使用相同的强度系数A）
-                        reflection_frame = self._generate_reflection_flare(
-                            light_pos, light_color, intensity_multiplier
+                        # 🚀 连续性修复：使用固定种子，只让光源位置变化
+                        # time参数是种子，应该保持固定！只有light_pos变化才能实现平滑移动
+                        
+                        # 生成反射炫光（使用序列级固定参数 + 固定种子）
+                        reflection_frame = self._generate_reflection_flare_continuous(
+                            light_pos, light_color, intensity_multiplier,
+                            sequence_noise_texture, sequence_flare_size, sequence_time_seed
                         )
                         
                         if reflection_frame is not None:
@@ -660,7 +723,8 @@ class FlareFlickeringSynthesizer:
                             # Debug信息（只打印前5帧）
                             if frame_idx < 5:
                                 print(f"    Frame {frame_idx}: Added reflection flare at {light_pos}, "
-                                      f"color={[f'{c:.2f}' for c in light_color]}, intensity={intensity_multiplier:.3f}")
+                                      f"color={[f'{c:.2f}' for c in light_color]}, intensity={intensity_multiplier:.3f}, "
+                                      f"seed={sequence_time_seed:.1f} (fixed)")
                     
                 except Exception as e:
                     # 静默处理错误，确保主流程不中断
