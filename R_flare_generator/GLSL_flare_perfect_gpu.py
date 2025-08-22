@@ -35,7 +35,7 @@ class FlareGeneratorPerfectGPU:
             print(f"💾 显存: {torch.cuda.get_device_properties(0).total_memory // 1024**3}GB")
     
     def _gpu_noise_sample(self, noise_texture, u, v):
-        """GPU加速噪声采样 - 使用PyTorch的grid_sample"""
+        """GPU加速噪声采样 - 改进处理大范围数值"""
         # noise_texture: (1, C, H, W) 
         # u, v: (...) 任意形状的坐标
         
@@ -43,16 +43,21 @@ class FlareGeneratorPerfectGPU:
         v = torch.atleast_1d(v)
         batch_size = u.shape[0]
         
-        # PyTorch grid_sample需要坐标在[-1,1]范围
-        grid_u = (u % 1.0) * 2.0 - 1.0
-        grid_v = (v % 1.0) * 2.0 - 1.0
+        # 改进：更好的大范围数值处理，使用分数部分并保持更多变化
+        # GLSL的texture()对大数值有良好处理，我们需要模拟这种行为
+        u_norm = torch.fmod(torch.abs(u), 1.0)  # 使用fmod获得更好的分布
+        v_norm = torch.fmod(torch.abs(v), 1.0)
         
-        # 创建采样网格 (1, N, 1, 2) - 修复batch维度
+        # PyTorch grid_sample需要坐标在[-1,1]范围
+        grid_u = u_norm * 2.0 - 1.0
+        grid_v = v_norm * 2.0 - 1.0
+        
+        # 创建采样网格 (1, N, 1, 2)
         grid = torch.stack([grid_u, grid_v], dim=-1).view(1, batch_size, 1, 2)
         
-        # 采样 (1, C, H, W) -> (1, C, N, 1)
+        # 采样 (1, C, H, W) -> (1, C, N, 1) - 使用wrap模式更好模拟GLSL
         sampled = F.grid_sample(noise_texture, grid, 
-                              mode='bilinear', padding_mode='border', 
+                              mode='bilinear', padding_mode='reflection', 
                               align_corners=False)
         
         # 重新整形为 (N, C)
@@ -89,20 +94,23 @@ class FlareGeneratorPerfectGPU:
         main_glow_color = torch.zeros(flat_size, 3, device=self.device)
         reflections_color = torch.zeros(flat_size, 3, device=self.device)
         
-        # Part 1: 主光辉 (GPU向量化)
+        # Part 1: 主光辉 (GPU向量化) - 修复光晕计算
         if generate_main_glow:
             d_length = torch.sqrt(d_x**2 + d_y**2)
             core_intensity = (0.01 + gn[0] * 0.2) / (d_length + 0.001)
             main_glow_color[:, :] = core_intensity.unsqueeze(-1)
             
-            # 光晕计算
+            # 光晕计算 - 修复：应该是相加而非相乘
             angle = torch.atan2(d_y, d_x)
             halo_u = angle * 256.9 + pos_x * 2.0
             halo_zero = torch.zeros_like(halo_u)
             halo_noise = self._gpu_noise_sample(noise_texture, halo_u, halo_zero)
             halo_factor = halo_noise[:, 1] * 0.25
             
-            main_glow_color *= (1.0 + halo_factor.unsqueeze(-1))
+            # 修复：GLSL是 main_glow_color += vec3(halo) * main_glow_color
+            # 即 halo 与 core 的积再加到 core 上
+            halo_contribution = halo_factor.unsqueeze(-1) * main_glow_color
+            main_glow_color += halo_contribution
         
         # fltr计算
         uv_length = torch.sqrt(uv_x_flat**2 + uv_y_flat**2)

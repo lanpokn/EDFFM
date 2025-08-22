@@ -16,12 +16,23 @@ import cv2
 import os
 import random
 import time
+import sys
 from typing import Tuple, List, Dict, Optional
 import glob
 from PIL import Image
 
 # ✅ 修复：torchvision现在完全可用，移除fallback机制
 import torchvision.transforms as transforms
+
+# 🚨 新增：反射炫光生成器导入
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'R_flare_generator'))
+try:
+    from GLSL_flare_ultra_fast_gpu import FlareGeneratorUltraFastGPU
+    GLSL_REFLECTION_AVAILABLE = True
+    print("✅ GLSL reflection flare generator imported successfully")
+except ImportError as e:
+    print(f"⚠️  GLSL reflection generator not available: {e}")
+    GLSL_REFLECTION_AVAILABLE = False
 
 
 class FlareFlickeringSynthesizer:
@@ -48,6 +59,11 @@ class FlareFlickeringSynthesizer:
         
         # Cache flare image paths for faster loading
         self._cache_flare_paths()
+        
+        # 🚨 新增：初始化反射炫光生成器和噪声纹理
+        self.glsl_generator = None
+        self.noise_textures = []
+        self._init_reflection_flare_generator()
     
     def _init_flare_transforms(self):
         """初始化分离的炫光变换管道 (解决黑框问题)."""
@@ -108,6 +124,144 @@ class FlareFlickeringSynthesizer:
                 print(f"⚠️  Directory not found: {compound_dir}")
         
         print(f"📊 Total: {len(self.compound_flare_paths)} flare images from all Compound_Flare directories")
+    
+    def _init_reflection_flare_generator(self):
+        """初始化GLSL反射炫光生成器和噪声纹理"""
+        if not GLSL_REFLECTION_AVAILABLE:
+            print("⚠️  GLSL reflection generator not available, reflection flare disabled")
+            return
+            
+        try:
+            # 初始化GLSL生成器
+            self.glsl_generator = FlareGeneratorUltraFastGPU(
+                output_size=self.target_resolution
+            )
+            
+            # 加载噪声纹理列表
+            noise_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                   'R_flare_generator', 'noise_textures')
+            if os.path.exists(noise_dir):
+                self.noise_textures = [
+                    os.path.join(noise_dir, f) for f in os.listdir(noise_dir)
+                    if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+                ]
+                print(f"🎨 Loaded {len(self.noise_textures)} noise textures for reflection flare")
+            else:
+                print(f"⚠️  Noise texture directory not found: {noise_dir}")
+                
+            print("✅ GLSL reflection flare generator initialized successfully")
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize GLSL reflection generator: {e}")
+            self.glsl_generator = None
+    
+    def _detect_light_source_from_frame(self, frame_rgb: np.ndarray) -> Tuple[Optional[Tuple[int, int]], Tuple[float, float, float]]:
+        """
+        从散射炫光帧中检测光源位置和颜色
+        使用最亮的10个像素的平均位置和颜色作为光源特征
+        
+        Args:
+            frame_rgb: RGB帧 [H, W, 3], 值范围 [0, 255]
+            
+        Returns:
+            Tuple of (光源位置(x,y) or None, 光源颜色(r,g,b))
+        """
+        if frame_rgb is None or frame_rgb.size == 0:
+            return None, (1.0, 1.0, 1.0)
+            
+        # 确保数据格式正确
+        if frame_rgb.dtype != np.uint8:
+            frame_work = (np.clip(frame_rgb, 0, 1) * 255).astype(np.uint8)
+        else:
+            frame_work = frame_rgb
+            
+        # 计算亮度
+        frame_float = frame_work.astype(np.float32) / 255.0
+        luminance = (frame_float[:, :, 0] * 0.2126 + 
+                    frame_float[:, :, 1] * 0.7152 + 
+                    frame_float[:, :, 2] * 0.0722)
+        
+        # 找到最亮的10个像素位置
+        flat_luminance = luminance.flatten()
+        flat_indices = np.argsort(flat_luminance)[-10:]  # 最亮的10个像素索引
+        
+        # 过滤掉太暗的像素（亮度阈值0.1）
+        bright_indices = []
+        for idx in flat_indices:
+            if flat_luminance[idx] > 0.1:
+                bright_indices.append(idx)
+                
+        if len(bright_indices) == 0:
+            return None, (1.0, 1.0, 1.0)
+        
+        # 转换索引为2D坐标
+        h, w = luminance.shape
+        bright_coords = []
+        bright_colors = []
+        
+        for idx in bright_indices:
+            y = idx // w
+            x = idx % w
+            bright_coords.append((x, y))
+            bright_colors.append(frame_float[y, x, :])  # RGB颜色
+            
+        # 计算平均位置
+        avg_x = np.mean([coord[0] for coord in bright_coords])
+        avg_y = np.mean([coord[1] for coord in bright_coords])
+        light_pos = (int(avg_x), int(avg_y))
+        
+        # 计算平均颜色
+        avg_color = np.mean(bright_colors, axis=0)
+        light_color = tuple(float(c) for c in avg_color)
+        
+        return light_pos, light_color
+    
+    def _generate_reflection_flare(self, light_pos: Tuple[int, int], 
+                                 light_color: Tuple[float, float, float],
+                                 intensity_multiplier: float) -> Optional[np.ndarray]:
+        """
+        使用GLSL生成反射炫光
+        
+        Args:
+            light_pos: 光源位置 (x, y)
+            light_color: 光源颜色 (r, g, b)
+            intensity_multiplier: 强度系数A（与散射炫光相同的频闪系数）
+            
+        Returns:
+            反射炫光图像 [H, W, 3] uint8格式, 或None
+        """
+        if self.glsl_generator is None or not self.noise_textures:
+            return None
+            
+        try:
+            # 随机选择噪声纹理
+            noise_texture_path = random.choice(self.noise_textures)
+            
+            # GLSL反射炫光参数
+            flare_size = random.uniform(0.15, 0.25)  # 反射炫光尺寸
+            time_seed = random.random() * 50  # 随机时间种子
+            
+            # 生成反射炫光
+            reflection_pil = self.glsl_generator.generate(
+                light_pos=light_pos,
+                noise_image_path=noise_texture_path,
+                time=time_seed,
+                flare_size=flare_size,
+                light_color=light_color,
+                generate_main_glow=False,   # 不生成主光源
+                generate_reflections=True  # 只生成反射
+            )
+            
+            # 转换为numpy并应用强度系数
+            reflection_array = np.array(reflection_pil).astype(np.float32)
+            reflection_scaled = reflection_array * intensity_multiplier
+            reflection_final = np.clip(reflection_scaled, 0, 255).astype(np.uint8)
+            
+            return reflection_final
+            
+        except Exception as e:
+            # 静默处理错误，避免中断主流程
+            return None
     
     def get_realistic_flicker_frequency(self) -> float:
         """Get a realistic flicker frequency based on real-world power grid standards.
@@ -483,6 +637,35 @@ class FlareFlickeringSynthesizer:
             final_frame_pil = self.final_crop_transform(moved_frame_pil)
             final_frame = np.array(final_frame_pil)
             
+            # 🚨 新增：散射炫光 + 反射炫光融合
+            # 4. 检测光源位置和颜色，生成反射炫光并叠加
+            if self.glsl_generator is not None and len(self.noise_textures) > 0:
+                try:
+                    # 从当前散射炫光帧检测光源
+                    light_pos, light_color = self._detect_light_source_from_frame(final_frame)
+                    
+                    if light_pos is not None:
+                        # 生成反射炫光（使用相同的强度系数A）
+                        reflection_frame = self._generate_reflection_flare(
+                            light_pos, light_color, intensity_multiplier
+                        )
+                        
+                        if reflection_frame is not None:
+                            # 叠加反射炫光到散射炫光
+                            final_frame_float = final_frame.astype(np.float32)
+                            reflection_float = reflection_frame.astype(np.float32)
+                            combined_frame = final_frame_float + reflection_float
+                            final_frame = np.clip(combined_frame, 0, 255).astype(np.uint8)
+                            
+                            # Debug信息（只打印前5帧）
+                            if frame_idx < 5:
+                                print(f"    Frame {frame_idx}: Added reflection flare at {light_pos}, "
+                                      f"color={[f'{c:.2f}' for c in light_color]}, intensity={intensity_multiplier:.3f}")
+                    
+                except Exception as e:
+                    # 静默处理错误，确保主流程不中断
+                    pass
+            
             frames.append(final_frame)
         
         # Return frames with metadata for debugging
@@ -496,7 +679,9 @@ class FlareFlickeringSynthesizer:
             'movement_distance_pixels': np.linalg.norm(movement_path[-1] - movement_path[0]),
             'movement_speed_pixels_per_sec': np.linalg.norm(movement_path[-1] - movement_path[0]) / duration,
             'positioned_flare_size': (flare_h, flare_w),
-            'effective_work_area': (effective_h, effective_w)
+            'effective_work_area': (effective_h, effective_w),
+            'reflection_flare_enabled': self.glsl_generator is not None,
+            'noise_textures_count': len(self.noise_textures)
         }
         
         return frames, metadata
