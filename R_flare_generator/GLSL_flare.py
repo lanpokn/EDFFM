@@ -132,7 +132,7 @@ class FlareGenerator:
 
 # --- 如何使用 (已更新为展示修正后的效果) ---
 if __name__ == '__main__':
-    OUTPUT_RESOLUTION = (1280, 720)
+    OUTPUT_RESOLUTION = (640, 480)
     TEXTURE_SOURCE_DIR = 'noise_textures'
     OUTPUT_DIR = 'R_flare_fixed_test'
 
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     print(f"\n--- 准备生成修正后的效果对比图 ---")
     
     fixed_source_path = os.path.join(TEXTURE_SOURCE_DIR, random.choice(available_textures))
-    fixed_light_pos = (generator.width * 0.8, generator.height * 0.3)
+    fixed_light_pos = (generator.width * 0.4, generator.height * 0.4)
     print(f"所有示例将使用相同的图片源: '{os.path.basename(fixed_source_path)}'")
     
     # 示例1: 默认行为 - 只生成反射炫光 (现在效果会很丰富)

@@ -47,7 +47,11 @@
       "Bash(echo)",
       "Bash(echo:*)",
       "Bash(tree:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(dpkg:*)",
+      "Bash(glxinfo:*)",
+      "Bash(sudo apt:*)",
+      "Bash(sudo apt install:*)"
     ],
     "deny": []
   }
