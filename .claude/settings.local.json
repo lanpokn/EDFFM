@@ -51,7 +51,10 @@
       "Bash(dpkg:*)",
       "Bash(glxinfo:*)",
       "Bash(sudo apt:*)",
-      "Bash(sudo apt install:*)"
+      "Bash(sudo apt install:*)",
+      "Bash(export LIBGL_ALWAYS_SOFTWARE=1)",
+      "Bash(export DISPLAY=:0.0)",
+      "Bash(export PYOPENGL_PLATFORM=osmesa)"
     ],
     "deny": []
   }
