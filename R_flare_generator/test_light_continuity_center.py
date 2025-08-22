@@ -1,7 +1,7 @@
 import os
 import math
 import time
-from GLSL_flare_perfect_gpu import FlareGeneratorPerfectGPU
+from GLSL_flare_ultra_fast_gpu import FlareGeneratorUltraFastGPU
 
 def generate_center_continuity_test():
     """生成50张光源从中心开始的连续变化测试图片"""
@@ -13,7 +13,7 @@ def generate_center_continuity_test():
         os.makedirs(OUTPUT_DIR)
     
     available_textures = [f for f in os.listdir(TEXTURE_SOURCE_DIR) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-    generator = FlareGeneratorPerfectGPU(output_size=OUTPUT_RESOLUTION)
+    generator = FlareGeneratorUltraFastGPU(output_size=OUTPUT_RESOLUTION)
     
     print("🎯 光源中心起始连续性测试 - 50张图片")
     print("=" * 60)

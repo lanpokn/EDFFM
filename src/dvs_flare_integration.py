@@ -1263,7 +1263,7 @@ class DVSFlareEventGenerator:
             # Run simulator
             result = subprocess.run([
                 sys.executable, "main.py"
-            ], capture_output=True, text=True, timeout=60)
+            ], capture_output=True, text=True, timeout=300)  # 增加到5分钟
             
             if result.returncode != 0:
                 raise RuntimeError(f"DVS simulator failed: {result.stderr}")
@@ -1381,11 +1381,18 @@ class DVSFlareEventGenerator:
                 if 'dvs346_k' in dvs_params:
                     k_values = dvs_params['dvs346_k'].copy()
                     
-                    # 🎯 随机化k1参数 - 5到16之间随机化
+                    # 🎯 随机化k1参数 - 非等概率分布：5-7和7-16概率相等
                     import random
                     k1_min = 5.0   # 最小值5
                     k1_max = 16.0  # 最大值16
-                    k_values[0] = random.uniform(k1_min, k1_max)
+                    
+                    # 50%概率选择5.0-7.0区间，50%概率选择7.0-16.0区间
+                    if random.random() < 0.5:
+                        # 低范围：5.0-7.0 (2个单位长度)
+                        k_values[0] = random.uniform(5.0, 7.0)
+                    else:
+                        # 高范围：7.0-16.0 (9个单位长度)
+                        k_values[0] = random.uniform(7.0, 16.0)
                     
                     print(f"  Random k1: {k_values[0]:.3f} (range: {k1_min}-{k1_max})")
                     

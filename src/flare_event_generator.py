@@ -218,8 +218,8 @@ class FlareEventGenerator:
         
         print(f"    Debug vis: {total_frames} frames, {original_fps}fps, {duration_sec*1000:.1f}ms")
         
-        # 多分辨率策略 - 基于原始帧间隔
-        resolution_scales = [0.5, 1, 2, 4]
+        # 🚀 优化：只生成0.5x事件可视化，大幅减少处理时间
+        resolution_scales = [0.5]  # 只保留0.5x，移除1,2,4x避免过慢
         base_frame_interval_us = 1e6 / original_fps  # 原始帧间间隔(微秒)
         
         for scale in resolution_scales:
