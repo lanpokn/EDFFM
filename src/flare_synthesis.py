@@ -216,6 +216,67 @@ class FlareFlickeringSynthesizer:
         
         return light_pos, light_color
     
+    def _detect_light_source_improved(self, frame_rgb: np.ndarray) -> Tuple[Optional[Tuple[int, int]], Tuple[float, float, float]]:
+        """
+        改进的光源检测：最亮50个像素的平均位置 + 整个炫光图片的颜色平均
+        
+        Args:
+            frame_rgb: RGB帧 [H, W, 3], 值范围 [0, 255]
+            
+        Returns:
+            Tuple of (光源位置(x,y) or None, 光源颜色(r,g,b))
+        """
+        if frame_rgb is None or frame_rgb.size == 0:
+            return None, (1.0, 1.0, 1.0)
+            
+        # 确保数据格式正确
+        if frame_rgb.dtype != np.uint8:
+            frame_work = (np.clip(frame_rgb, 0, 1) * 255).astype(np.uint8)
+        else:
+            frame_work = frame_rgb
+            
+        # 转换为float进行计算
+        frame_float = frame_work.astype(np.float32) / 255.0
+        
+        # 计算亮度
+        luminance = (frame_float[:, :, 0] * 0.2126 + 
+                    frame_float[:, :, 1] * 0.7152 + 
+                    frame_float[:, :, 2] * 0.0722)
+        
+        # 🚀 向量化优化：找到最亮50个像素并直接计算平均位置
+        flat_luminance = luminance.flatten()
+        flat_indices = np.argsort(flat_luminance)[-50:]  # 最亮的50个像素索引
+        
+        # 向量化过滤：只保留亮度>0.1的像素
+        bright_mask = flat_luminance[flat_indices] > 0.1
+        bright_indices = flat_indices[bright_mask]
+                
+        if len(bright_indices) == 0:
+            return None, (1.0, 1.0, 1.0)
+        
+        # 向量化坐标转换：直接用NumPy计算2D坐标
+        h, w = luminance.shape
+        y_coords = bright_indices // w  # 所有y坐标
+        x_coords = bright_indices % w   # 所有x坐标
+            
+        # 向量化平均位置计算
+        avg_x = int(np.mean(x_coords))
+        avg_y = int(np.mean(y_coords))
+        light_pos = (avg_x, avg_y)
+        
+        # 🚀 新方法：整个炫光图片的颜色平均（更稳定的颜色）
+        # 只考虑有炫光的区域（亮度>0.05的像素）
+        flare_mask = luminance > 0.05
+        if np.any(flare_mask):
+            flare_pixels = frame_float[flare_mask]  # 选择有炫光的像素
+            avg_color = np.mean(flare_pixels, axis=0)  # 对RGB分别求平均
+            light_color = tuple(float(c) for c in avg_color)
+        else:
+            # 无炫光区域，使用默认白色
+            light_color = (1.0, 1.0, 1.0)
+        
+        return light_pos, light_color
+    
     def _generate_reflection_flare(self, light_pos: Tuple[int, int], 
                                  light_color: Tuple[float, float, float],
                                  intensity_multiplier: float) -> Optional[np.ndarray]:
@@ -696,18 +757,18 @@ class FlareFlickeringSynthesizer:
             final_frame_pil = self.final_crop_transform(moved_frame_pil)
             final_frame = np.array(final_frame_pil)
             
-            # 🚨 新增：散射炫光 + 反射炫光融合（连续性修复版）
-            # 4. 检测光源位置和颜色，生成反射炫光并叠加
+            # 🚨 新增：散射炫光 + 反射炫光融合（优化检测版）
+            # 4. 使用改进的光源检测算法：最亮50点 + 整图颜色平均
             if sequence_noise_texture is not None:
                 try:
-                    # 从当前散射炫光帧检测光源
-                    light_pos, light_color = self._detect_light_source_from_frame(final_frame)
+                    # 🚀 改进光源检测：更精确的位置和颜色
+                    light_pos, light_color = self._detect_light_source_improved(final_frame)
                     
                     if light_pos is not None:
                         # 🚀 连续性修复：使用固定种子，只让光源位置变化
                         # time参数是种子，应该保持固定！只有light_pos变化才能实现平滑移动
                         
-                        # 生成反射炫光（使用序列级固定参数 + 固定种子）
+                        # 生成反射炫光（使用改进检测 + 序列级固定参数）
                         reflection_frame = self._generate_reflection_flare_continuous(
                             light_pos, light_color, intensity_multiplier,
                             sequence_noise_texture, sequence_flare_size, sequence_time_seed
@@ -722,9 +783,9 @@ class FlareFlickeringSynthesizer:
                             
                             # Debug信息（只打印前5帧）
                             if frame_idx < 5:
-                                print(f"    Frame {frame_idx}: Added reflection flare at {light_pos}, "
-                                      f"color={[f'{c:.2f}' for c in light_color]}, intensity={intensity_multiplier:.3f}, "
-                                      f"seed={sequence_time_seed:.1f} (fixed)")
+                                print(f"    Frame {frame_idx}: Added reflection flare at {light_pos} (top50), "
+                                      f"color={[f'{c:.2f}' for c in light_color]} (avg), "
+                                      f"intensity={intensity_multiplier:.3f}, seed={sequence_time_seed:.1f}")
                     
                 except Exception as e:
                     # 静默处理错误，确保主流程不中断
