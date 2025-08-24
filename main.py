@@ -22,13 +22,14 @@ def run_step1_flare_generation(config):
     # 创建炫光事件生成器
     flare_generator = FlareEventGenerator(config)
     
-    # 生成炫光事件
-    generated_files = flare_generator.generate_batch(total_sequences)
+    # 生成炫光事件和光源事件
+    flare_files, light_source_files = flare_generator.generate_batch(total_sequences)
     
-    print(f"\n✅ Step 1 Complete: Generated {len(generated_files)} flare event files")
-    print(f"   Output directory: {flare_generator.output_dir}")
+    print(f"\n✅ Step 1 Complete:")
+    print(f"   Flare events: {len(flare_files)} files → {flare_generator.output_dir}")
+    print(f"   Light source events: {len(light_source_files)} files → {flare_generator.light_source_output_dir}")
     
-    return generated_files
+    return flare_files
 
 def run_step2_event_composition(config):
     """Step 2: 合成背景+炫光事件"""
