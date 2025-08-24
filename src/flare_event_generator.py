@@ -161,13 +161,15 @@ class FlareEventGenerator:
         
         # 创建Light_Source版本的FlareFlickeringSynthesizer
         class LightSourceSynthesizer(FlareFlickeringSynthesizer):
-            def _cache_flare_paths(self):
-                """重写：从Light_Source文件夹加载图像，但不加载GLSL反射炫光"""
-                self.compound_flare_paths = []
-                
-                # 关键：禁用GLSL反射炫光（光源事件不需要反射）
+            def _init_reflection_flare_generator(self):
+                """重写：完全禁用GLSL反射炫光生成器（光源不应该有炫光反射）"""
                 self.glsl_generator = None
                 self.noise_texture = None
+                print("🚫 GLSL reflection flare disabled for light source events")
+            
+            def _cache_flare_paths(self):
+                """重写：从Light_Source文件夹加载图像"""
+                self.compound_flare_paths = []
                 
                 # Light_Source目录路径
                 light_source_dirs = [
