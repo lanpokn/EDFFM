@@ -92,25 +92,23 @@ class FlareEventGenerator:
         self.config['data']['flare_synthesis']['duration_range'] = [duration_sec, duration_sec]
         
         try:
-            # 设置序列级别的随机种子以确保炫光和光源使用相同的图片
+            # 设置序列级别的随机种子
             sequence_seed = random.randint(0, 1000000) + sequence_id
-            random.seed(sequence_seed)
-            np.random.seed(sequence_seed)
             
-            # 生成炫光事件
-            flare_events, metadata, flare_frames = self.dvs_generator.generate_flare_events(cleanup=True)
+            # 🔧 关键修复：提取炫光生成的所有随机参数，确保光源使用完全相同的参数
+            flare_generation_params = self._generate_shared_flare_params(sequence_seed)
             
-            # 保存种子到metadata中
-            metadata['random_seed'] = sequence_seed
+            # 生成炫光事件（使用提取的参数）
+            flare_events, metadata, flare_frames = self._generate_flare_events_with_params(flare_generation_params)
             
             if len(flare_events) == 0:
                 print(f"⚠️  Warning: No flare events generated for sequence {sequence_id}")
                 return None, None
             
-            # 创建输出文件名
-            timestamp = int(time.time() * 1000)
-            flare_filename = f"flare_sequence_{timestamp}_{sequence_id:05d}.h5"
-            light_source_filename = f"light_source_sequence_{timestamp}_{sequence_id:05d}.h5"
+            # 创建统一的输出文件名（确保炫光和光源文件名匹配）
+            base_filename = f"sequence_{sequence_seed}_{sequence_id:05d}"
+            flare_filename = f"flare_{base_filename}.h5"
+            light_source_filename = f"light_source_{base_filename}.h5"
             
             flare_output_path = os.path.join(self.output_dir, flare_filename)
             light_source_output_path = os.path.join(self.light_source_output_dir, light_source_filename)
@@ -118,12 +116,12 @@ class FlareEventGenerator:
             # 保存炫光事件为标准DVS格式
             self._save_events_dvs_format(flare_events, flare_output_path, metadata)
             
-            # 生成对应的光源事件 (使用相同的随机种子和参数)
-            light_source_events, light_source_metadata, light_source_frames = self._generate_light_source_events_with_same_params(metadata)
+            # 🔧 关键修复：使用完全相同的参数生成光源事件
+            light_source_events, light_source_metadata, light_source_frames = self._generate_light_source_events_with_same_params(flare_generation_params)
             
-            if light_source_events is not None and len(light_source_events) > 0:
+            if light_source_events is not None and len(light_source_events) >= 0:  # 允许空事件数组
                 # 保存光源事件为标准DVS格式
-                self._save_events_dvs_format(light_source_events, light_source_output_path, light_source_metadata)
+                self._save_events_dvs_format(light_source_events, light_source_output_path, light_source_metadata or metadata)
                 
                 generation_time = time.time() - start_time
                 
@@ -138,15 +136,17 @@ class FlareEventGenerator:
                 # Debug可视化
                 if self.debug_mode:
                     self._save_debug_visualization(flare_events, flare_frames, sequence_id, metadata, 'flare')
-                    self._save_debug_visualization(light_source_events, light_source_frames, sequence_id, light_source_metadata, 'light_source')
+                    self._save_debug_visualization(light_source_events, light_source_frames, sequence_id, light_source_metadata or metadata, 'light_source')
                 
                 return flare_output_path, light_source_output_path
             else:
-                print(f"⚠️  Warning: No light source events generated for sequence {sequence_id}")
+                print(f"⚠️  Warning: Failed to generate light source events for sequence {sequence_id}")
                 return flare_output_path, None
             
         except Exception as e:
             print(f"❌ Error generating sequence {sequence_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return None, None
             
         finally:
@@ -213,37 +213,157 @@ class FlareEventGenerator:
         else:
             raise ValueError("目前只支持DVS-Voltmeter仿真器生成光源事件")
     
-    def _generate_light_source_events_with_same_params(self, flare_metadata: Dict) -> Tuple[Optional[np.ndarray], Optional[Dict], Optional[List[np.ndarray]]]:
+    def _generate_shared_flare_params(self, seed: int) -> Dict:
         """
-        使用与炫光相同的随机种子和参数生成光源事件
+        生成炫光和光源共享的所有随机参数
         
         Args:
-            flare_metadata: 炫光生成的元数据
+            seed: 随机种子
+            
+        Returns:
+            包含所有共享参数的字典
+        """
+        import random
+        random.seed(seed)
+        np.random.seed(seed)
+        
+        # 从炫光合成器中提取所有可能的随机选择
+        flare_synthesizer = self.dvs_generator.flare_synthesizer
+        
+        # 1. 选择相同的炫光图片 (通过索引而不是随机选择)
+        if not flare_synthesizer.compound_flare_paths:
+            raise ValueError("No flare images found")
+            
+        flare_image_index = random.randint(0, len(flare_synthesizer.compound_flare_paths) - 1)
+        selected_flare_path = flare_synthesizer.compound_flare_paths[flare_image_index]
+        
+        # 2. 找到对应的光源图片路径 (基于文件名匹配)
+        flare_filename = os.path.basename(selected_flare_path)
+        corresponding_light_source_paths = []
+        
+        # 在光源目录中查找同名文件
+        for light_path in self.light_source_dvs_generator.flare_synthesizer.compound_flare_paths:
+            if os.path.basename(light_path) == flare_filename:
+                corresponding_light_source_paths.append(light_path)
+        
+        if not corresponding_light_source_paths:
+            # 如果找不到对应的光源图片，使用第一个匹配的前缀
+            base_name = flare_filename.split('.')[0]  # 去掉扩展名
+            for light_path in self.light_source_dvs_generator.flare_synthesizer.compound_flare_paths:
+                if os.path.basename(light_path).startswith(base_name):
+                    corresponding_light_source_paths.append(light_path)
+                    break
+        
+        if not corresponding_light_source_paths:
+            print(f"⚠️  Warning: No corresponding light source image found for {flare_filename}")
+            corresponding_light_source_path = self.light_source_dvs_generator.flare_synthesizer.compound_flare_paths[0]
+        else:
+            corresponding_light_source_path = corresponding_light_source_paths[0]
+        
+        # 3. 生成相同的变换参数 (模拟positioning_transform的随机性)
+        # 这些参数将被两个合成器使用
+        transform_seed = random.randint(0, 1000000)
+        
+        # 4. 生成相同的频闪参数
+        frequency_hz = random.uniform(100, 120)  # 匹配配置中的频率范围
+        curve_types = ['exponential', 'linear', 'quadratic']
+        curve_type = random.choice(curve_types)
+        
+        # 5. 生成相同的位置参数 (如果没有指定的话)
+        flare_position_x = random.randint(50, self.config['data']['resolution_w'] - 50)
+        flare_position_y = random.randint(50, self.config['data']['resolution_h'] - 50)
+        
+        return {
+            'seed': seed,
+            'flare_image_path': selected_flare_path,
+            'light_source_image_path': corresponding_light_source_path,
+            'transform_seed': transform_seed,
+            'frequency_hz': frequency_hz,
+            'curve_type': curve_type,
+            'flare_position': (flare_position_x, flare_position_y),
+            'flare_image_index': flare_image_index
+        }
+    
+    def _generate_flare_events_with_params(self, params: Dict) -> Tuple[np.ndarray, Dict, List[np.ndarray]]:
+        """
+        使用指定参数生成炫光事件
+        """
+        # 设置随机种子
+        import random
+        random.seed(params['transform_seed'])
+        np.random.seed(params['transform_seed'])
+        
+        # 创建定制的合成器，强制使用指定的图片和参数
+        original_choice = random.choice
+        original_paths = self.dvs_generator.flare_synthesizer.compound_flare_paths[:]
+        
+        def fixed_choice(paths):
+            if paths is self.dvs_generator.flare_synthesizer.compound_flare_paths:
+                return params['flare_image_path']
+            return original_choice(paths)
+        
+        # 临时替换random.choice函数
+        random.choice = fixed_choice
+        
+        try:
+            # 使用固定参数生成炫光事件
+            return self.dvs_generator.generate_flare_events(cleanup=True)
+        finally:
+            # 恢复原始函数
+            random.choice = original_choice
+    
+    def _generate_light_source_events_with_same_params(self, params: Dict) -> Tuple[Optional[np.ndarray], Optional[Dict], Optional[List[np.ndarray]]]:
+        """
+        使用与炫光完全相同的参数生成光源事件
+        
+        Args:
+            params: 共享的生成参数
             
         Returns:
             Tuple[光源事件数组, 光源元数据, 光源图像序列] 或 (None, None, None)
         """
         try:
-            # 设置相同的随机种子以确保参数一致性
-            if 'random_seed' in flare_metadata:
-                import random
-                random.seed(flare_metadata['random_seed'])
-                np.random.seed(flare_metadata['random_seed'])
+            # 设置相同的随机种子
+            import random
+            random.seed(params['transform_seed'])
+            np.random.seed(params['transform_seed'])
             
-            # 直接调用光源DVS生成器
-            light_source_events, light_source_metadata, light_source_frames = self.light_source_dvs_generator.generate_flare_events(cleanup=True)
+            print(f"    Using corresponding light source: {os.path.basename(params['light_source_image_path'])}")
             
-            if light_source_events is not None and len(light_source_events) > 0:
-                print(f"    Light source events generated: {len(light_source_events):,}")
-            else:
-                print(f"    Light source events: 0 (光源可能在场景外或变化太小)")
-                # 创建空的事件数组，保持格式一致性
-                light_source_events = np.empty((0, 4), dtype=np.float64)
-                if light_source_metadata is None:
-                    light_source_metadata = flare_metadata.copy()
-                    light_source_metadata['num_events'] = 0
+            # 创建定制的光源合成器，强制使用对应的光源图片
+            original_choice = random.choice
             
-            return light_source_events, light_source_metadata, light_source_frames
+            def fixed_light_source_choice(paths):
+                if paths is self.light_source_dvs_generator.flare_synthesizer.compound_flare_paths:
+                    return params['light_source_image_path']
+                return original_choice(paths)
+            
+            # 临时替换random.choice函数
+            random.choice = fixed_light_source_choice
+            
+            try:
+                # 使用固定参数生成光源事件
+                light_source_events, light_source_metadata, light_source_frames = self.light_source_dvs_generator.generate_flare_events(cleanup=True)
+                
+                if light_source_events is not None and len(light_source_events) > 0:
+                    print(f"    Light source events generated: {len(light_source_events):,}")
+                else:
+                    print(f"    Light source events: 0 (光源可能在场景外或变化太小)")
+                    # 创建空的事件数组，保持格式一致性
+                    light_source_events = np.empty((0, 4), dtype=np.float64)
+                    if light_source_metadata is None:
+                        light_source_metadata = {
+                            'num_events': 0,
+                            'duration_sec': params.get('duration_sec', 0.1),
+                            'frequency_hz': params['frequency_hz'],
+                            'curve_type': params['curve_type']
+                        }
+                
+                return light_source_events, light_source_metadata, light_source_frames
+                
+            finally:
+                # 恢复原始函数
+                random.choice = original_choice
             
         except Exception as e:
             error_msg = str(e)
@@ -251,8 +371,12 @@ class FlareEventGenerator:
                 print(f"    Light source events: 0 (光源变化太小，DVS未检测到事件)")
                 # 创建空的事件数组
                 empty_events = np.empty((0, 4), dtype=np.float64)
-                empty_metadata = flare_metadata.copy()
-                empty_metadata['num_events'] = 0
+                empty_metadata = {
+                    'num_events': 0,
+                    'duration_sec': params.get('duration_sec', 0.1),
+                    'frequency_hz': params['frequency_hz'],
+                    'curve_type': params['curve_type']
+                }
                 return empty_events, empty_metadata, []
             else:
                 print(f"❌ Error generating light source events: {e}")
