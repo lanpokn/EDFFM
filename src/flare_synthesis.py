@@ -95,8 +95,11 @@ class FlareFlickeringSynthesizer:
         print(f"✅ Initialized split flare transforms: positioning + final crop to {target_w}x{target_h}")
         
     def _cache_flare_paths(self):
-        """Cache all available flare image paths from both Compound_Flare directories."""
-        self.compound_flare_paths = []
+        """
+        🔄 修改: 缓存炫光和光源图像路径，并建立一一对应的配对关系
+        """
+        self.compound_flare_paths = []  # 旧的列表保留，用于向下兼容或随机选择
+        self.flare_light_source_pairs = []  # 🆕 新增: (炫光路径, 光源路径) 元组的列表
         
         # ✅ 修正：正确的两个炫光目录路径
         compound_dirs = [
@@ -106,24 +109,48 @@ class FlareFlickeringSynthesizer:
             os.path.join(self.flare7k_path, "Flare7K", "Scattering_Flare", "Compound_Flare")
         ]
         
+        print("🔍 Caching flare and light source image pairs...")
         for compound_dir in compound_dirs:
-            if os.path.exists(compound_dir):
-                patterns = [
-                    os.path.join(compound_dir, "*.png"),
-                    os.path.join(compound_dir, "*.jpg"),
-                    os.path.join(compound_dir, "*.jpeg")
-                ]
-                files_found = 0
-                for pattern in patterns:
-                    found_files = glob.glob(pattern)
-                    self.compound_flare_paths.extend(found_files)
-                    files_found += len(found_files)
-                
-                print(f"✅ Loaded {files_found} flare images from: {os.path.basename(os.path.dirname(compound_dir))}/Compound_Flare/")
-            else:
+            if not os.path.exists(compound_dir):
                 print(f"⚠️  Directory not found: {compound_dir}")
+                continue
+
+            # 假设 Light_Source 文件夹与 Compound_Flare 在同一父目录下
+            light_source_dir = os.path.join(os.path.dirname(compound_dir), "Light_Source")
+            
+            patterns = [
+                os.path.join(compound_dir, "*.png"),
+                os.path.join(compound_dir, "*.jpg"),
+                os.path.join(compound_dir, "*.jpeg")
+            ]
+            flare_files = []
+            for pattern in patterns:
+                flare_files.extend(glob.glob(pattern))
+            
+            # 排序确保一致性
+            flare_files = sorted(flare_files)
+            self.compound_flare_paths.extend(flare_files)
+            
+            files_found = len(flare_files)
+            paired_count = 0
+            
+            if os.path.exists(light_source_dir):
+                for flare_path in flare_files:
+                    basename = os.path.basename(flare_path)
+                    light_source_path = os.path.join(light_source_dir, basename)
+                    
+                    if os.path.exists(light_source_path):
+                        self.flare_light_source_pairs.append((flare_path, light_source_path))
+                        paired_count += 1
+                
+                print(f"  ✅ Paired {paired_count} images from: {os.path.basename(os.path.dirname(compound_dir))}")
+            else:
+                print(f"  ⚠️  Light source directory not found for {compound_dir}, skipping pairing.")
+            
+            print(f"  📁 Loaded {files_found} flare images from: {os.path.basename(os.path.dirname(compound_dir))}/Compound_Flare/")
         
-        print(f"📊 Total: {len(self.compound_flare_paths)} flare images from all Compound_Flare directories")
+        print(f"📊 Total: {len(self.compound_flare_paths)} flare images found.")
+        print(f"🔗 Total: {len(self.flare_light_source_pairs)} flare/light-source pairs created.")
     
     def _init_reflection_flare_generator(self):
         """初始化GLSL反射炫光生成器和噪声纹理"""
@@ -276,6 +303,68 @@ class FlareFlickeringSynthesizer:
             light_color = (1.0, 1.0, 1.0)
         
         return light_pos, light_color
+    
+    def prepare_sequence_parameters(self) -> Dict:
+        """
+        🆕 新增: 生成一个包含所有随机参数的"剧本"字典。
+        这是确保对齐的核心！
+        """
+        # 1. 随机持续时间、频率等
+        duration_range = self.synthesis_config.get('duration_range', [0.05, 0.15])
+        if isinstance(duration_range, list) and len(duration_range) == 2:
+            # 如果range已被epoch_iteration_dataset设置为固定值，使用它
+            if duration_range[0] == duration_range[1]:
+                duration = duration_range[0]
+            else:
+                # 从范围中随机选择
+                duration = random.uniform(duration_range[0], duration_range[1])
+        else:
+            # 回退到默认值
+            duration = 0.1
+            
+        frequency = self.get_realistic_flicker_frequency()
+        fps = self.calculate_dynamic_fps(frequency)
+        num_frames = int(duration * fps)
+
+        # 2. 生成频闪曲线
+        curve_type = random.choice(self.synthesis_config['flicker_curves'])
+        flicker_curve = self.generate_flicker_curve(frequency, duration, fps, curve_type)
+
+        # 3. 生成运动路径
+        # 注意：这里的resolution是为了确定运动范围，可以稍微放大以避免裁剪问题
+        movement_resolution = (self.target_resolution[0] + 120, self.target_resolution[1] + 120)
+        movement_path = self._generate_realistic_movement_path(duration, len(flicker_curve), movement_resolution)
+        
+        # 4. 生成变换种子和参数 (重要！)
+        # 为了让 torchvision.transforms 可复现，我们需要固定种子
+        transform_seed = random.randint(0, 2**32 - 1)
+        
+        # 5. 生成GLSL反射炫光参数 (即使光源视频不用，也要预先生成以保持随机状态一致)
+        reflection_params = {}
+        if self.glsl_generator is not None and len(self.noise_textures) > 0:
+            reflection_params = {
+                'noise_texture': random.choice(self.noise_textures),
+                'flare_size': random.uniform(0.15, 0.25),
+                'time_seed': random.random() * 50
+            }
+
+        # 6. 将所有参数打包成一个"剧本"
+        script = {
+            "duration": duration,
+            "frequency": frequency,
+            "fps": fps,
+            "curve_type": curve_type,
+            "flicker_curve": flicker_curve,
+            "movement_path": movement_path,
+            "transform_seed": transform_seed,
+            "reflection_params": reflection_params,
+            "global_scale_factor": random.uniform(*self.synthesis_config.get('intensity_scale', [1.0, 1.0])),
+            "num_frames": num_frames
+        }
+        
+        print(f"  📋 Generated sequence script: {duration*1000:.1f}ms, {frequency:.1f}Hz, {fps}fps, {len(flicker_curve)} frames")
+        
+        return script
     
     def _generate_reflection_flare(self, light_pos: Tuple[int, int], 
                                  light_color: Tuple[float, float, float],
@@ -627,80 +716,55 @@ class FlareFlickeringSynthesizer:
         
         return flare_rgb
     
-    def generate_flickering_video_frames(self, flare_rgb: np.ndarray, 
-                                       frequency: Optional[float] = None, 
-                                       curve_type: Optional[str] = None,
-                                       position: Optional[Tuple[int, int]] = None) -> List[np.ndarray]:
-        """Generate flickering and moving video frames using natural cropping workflow.
-        
-        🚨 新方法：自然裁剪工作流，消除黑框
-        1. 在变换后的大图上应用闪烁
-        2. 在大图上应用运动轨迹
-        3. 最后裁剪到目标分辨率 (自然边界)
+    def generate_flickering_video_frames(self, 
+                                       base_image_rgb: np.ndarray, 
+                                       sequence_script: Dict,
+                                       apply_reflection: bool = True) -> Tuple[List[np.ndarray], Dict]:
+        """
+        🔄 重构: 此函数现在是确定性的，严格按照 sequence_script 执行。
         
         Args:
-            flare_rgb: Positioned RGB flare image (可能比目标尺寸大)
-            frequency: Flicker frequency in Hz (if None, uses realistic frequency)
-            curve_type: Flicker curve type (if None, random selection)
-            position: Optional (x, y) position to place flare, random if None
+            base_image_rgb: 基础图像 (炫光或光源)
+            sequence_script: 包含所有随机参数的"剧本"
+            apply_reflection: 是否应用GLSL反射炫光
             
         Returns:
-            List of RGB video frames showing flickering and moving flare
+            Tuple of (video_frames, metadata)
         """
-        # Use realistic frequency if not provided
-        if frequency is None:
-            frequency = self.get_realistic_flicker_frequency()
+        # 从"剧本"中解包所有参数
+        flicker_curve = sequence_script['flicker_curve']
+        movement_path = sequence_script['movement_path']
+        transform_seed = sequence_script['transform_seed']
+        reflection_params = sequence_script['reflection_params']
+        global_scale_factor = sequence_script['global_scale_factor']
+        duration = sequence_script['duration']
+        frequency = sequence_script['frequency']
+        fps = sequence_script['fps']
         
-        # Random curve type if not provided
-        if curve_type is None:
-            curve_type = random.choice(self.synthesis_config['flicker_curves'])
+        # 关键对齐步骤：为图像变换设置固定种子！
+        import torch
+        torch.manual_seed(transform_seed)
+        random.seed(transform_seed)  # 确保transforms内部的随机性也一致
+
+        # 应用位置变换
+        base_image_pil = Image.fromarray((base_image_rgb * 255).astype(np.uint8))
+        positioned_pil = self.positioning_transform(base_image_pil)
+        positioned_rgb = np.array(positioned_pil).astype(np.float32) / 255.0
         
-        # 🚨 FIX: Get duration from duration_range instead of deprecated duration_sec
-        duration_range = self.synthesis_config.get('duration_range', [0.05, 0.15])
-        if isinstance(duration_range, list) and len(duration_range) == 2:
-            # If range has been set to fixed value by epoch_iteration_dataset, use it
-            if duration_range[0] == duration_range[1]:
-                duration = duration_range[0]
-            else:
-                # Random duration from range
-                duration = random.uniform(duration_range[0], duration_range[1])
-        else:
-            # Fallback to default
-            duration = 0.1
-            
-        fps = self.calculate_dynamic_fps(frequency)  # Dynamic FPS based on frequency
-        
-        # 获取炫光图像的实际尺寸 (变换后的大图)
-        flare_h, flare_w = flare_rgb.shape[:2]
+        # 获取图像的实际尺寸 (变换后的大图)
+        positioned_h, positioned_w = positioned_rgb.shape[:2]
         target_w, target_h = self.target_resolution
         
-        # print(f"  Working with positioned flare: {flare_h}x{flare_w}, target: {target_h}x{target_w}")
+        # print(f"  Working with positioned image: {positioned_h}x{positioned_w}, target: {target_h}x{target_w}")
         
         # Convert RGB to light intensity
-        flare_intensity = self.rgb_to_light_intensity(flare_rgb)
+        base_intensity = self.rgb_to_light_intensity(positioned_rgb)
         
-        # Generate flicker curve
-        flicker_curve = self.generate_flicker_curve(frequency, duration, fps, curve_type)
-        
-        # 🚨 简化：直接在变换后的图像上生成运动，不需要额外画布
-        # 确保运动范围不超出最终裁剪边界
-        effective_w = min(flare_w, target_w + 120)  # 给运动留一些空间
-        effective_h = min(flare_h, target_h + 120)
-        
-        movement_path = self._generate_realistic_movement_path(
-            duration, len(flicker_curve), (effective_w, effective_h)
-        )
-        
-        # 🚨 修复：将随机强度缩放移到循环外，避免破坏规律频闪
-        scale_range = self.synthesis_config.get('intensity_scale', [1.0, 1.0])
-        global_scale_factor = random.uniform(scale_range[0], scale_range[1])  # 整个序列统一缩放
-        
-        # 🚀 反射炫光连续性修复：整个序列使用固定参数（重要：time是种子而非时间）
-        if self.glsl_generator is not None and len(self.noise_textures) > 0:
-            # 为整个序列选择固定的反射炫光参数
-            sequence_noise_texture = random.choice(self.noise_textures)  # 序列级固定噪声纹理
-            sequence_flare_size = random.uniform(0.15, 0.25)  # 序列级固定尺寸
-            sequence_time_seed = random.random() * 50  # 序列级固定种子（非时间！）
+        # 从剧本中获取反射炫光参数
+        if apply_reflection and self.glsl_generator and reflection_params:
+            sequence_noise_texture = reflection_params['noise_texture']
+            sequence_flare_size = reflection_params['flare_size']
+            sequence_time_seed = reflection_params['time_seed']
             print(f"  Reflection sequence params: noise={os.path.basename(sequence_noise_texture)}, "
                   f"size={sequence_flare_size:.3f}, seed={sequence_time_seed:.1f}")
         else:
@@ -711,19 +775,19 @@ class FlareFlickeringSynthesizer:
         frames = []
         
         for frame_idx, intensity_multiplier in enumerate(flicker_curve):
-            # 1. Apply flicker to the positioned flare image
-            flickered_intensity = flare_intensity * intensity_multiplier
+            # 1. Apply flicker to the positioned base image
+            flickered_intensity = base_intensity * intensity_multiplier
             
             # 保持原始RGB颜色比例
-            original_luminance = self.rgb_to_light_intensity(flare_rgb)
+            original_luminance = self.rgb_to_light_intensity(positioned_rgb)
             safe_luminance = np.where(original_luminance > 1e-8, original_luminance, 1e-8)
             intensity_ratio = flickered_intensity / safe_luminance
             
             # 按原始颜色比例调制RGB
-            frame_rgb = flare_rgb * np.expand_dims(intensity_ratio, axis=-1)
+            frame_rgb = positioned_rgb * np.expand_dims(intensity_ratio, axis=-1)
             frame_rgb = np.clip(frame_rgb * global_scale_factor, 0.0, 1.0)
             
-            # 2. 🚨 简化运动：直接平移变换后的炫光图像
+            # 2. 🚨 简化运动：直接平移变换后的图像
             # 获取当前帧的运动偏移
             current_pos = movement_path[frame_idx]
             start_pos = movement_path[0]
@@ -735,9 +799,9 @@ class FlareFlickeringSynthesizer:
             
             # 计算有效的复制区域
             src_start_x = max(0, -offset_x)
-            src_end_x = min(flare_w, flare_w - offset_x)
+            src_end_x = min(positioned_w, positioned_w - offset_x)
             src_start_y = max(0, -offset_y)
-            src_end_y = min(flare_h, flare_h - offset_y)
+            src_end_y = min(positioned_h, positioned_h - offset_y)
             
             dst_start_x = max(0, offset_x)
             dst_end_x = dst_start_x + (src_end_x - src_start_x)
@@ -757,9 +821,8 @@ class FlareFlickeringSynthesizer:
             final_frame_pil = self.final_crop_transform(moved_frame_pil)
             final_frame = np.array(final_frame_pil)
             
-            # 🚨 新增：散射炫光 + 反射炫光融合（优化检测版）
-            # 4. 使用改进的光源检测算法：最亮50点 + 整图颜色平均
-            if sequence_noise_texture is not None:
+            # 4. 🚨 根据apply_reflection标志控制反射炫光叠加
+            if apply_reflection and sequence_noise_texture is not None:
                 try:
                     # 🚀 改进光源检测：更精确的位置和颜色
                     light_pos, light_color = self._detect_light_source_improved(final_frame)
@@ -782,7 +845,7 @@ class FlareFlickeringSynthesizer:
                             final_frame = np.clip(combined_frame, 0, 255).astype(np.uint8)
                             
                             # Debug信息（只打印前5帧）
-                            if frame_idx < 5:
+                            if frame_idx < 5 and apply_reflection:
                                 print(f"    Frame {frame_idx}: Added reflection flare at {light_pos} (top50), "
                                       f"color={[f'{c:.2f}' for c in light_color]} (avg), "
                                       f"intensity={intensity_multiplier:.3f}, seed={sequence_time_seed:.1f}")
@@ -793,23 +856,88 @@ class FlareFlickeringSynthesizer:
             
             frames.append(final_frame)
         
-        # Return frames with metadata for debugging
+        # 基于剧本返回元数据
         metadata = {
             'frequency_hz': frequency,
-            'curve_type': curve_type,
+            'curve_type': sequence_script.get('curve_type', 'unknown'),
             'fps': fps,
             'duration_sec': duration,
             'total_frames': len(frames),
             'samples_per_cycle': fps / frequency,
             'movement_distance_pixels': np.linalg.norm(movement_path[-1] - movement_path[0]),
             'movement_speed_pixels_per_sec': np.linalg.norm(movement_path[-1] - movement_path[0]) / duration,
-            'positioned_flare_size': (flare_h, flare_w),
-            'effective_work_area': (effective_h, effective_w),
-            'reflection_flare_enabled': self.glsl_generator is not None,
+            'positioned_image_size': (positioned_h, positioned_w),
+            'reflection_flare_applied': apply_reflection and self.glsl_generator is not None,
             'noise_textures_count': len(self.noise_textures)
         }
         
         return frames, metadata
+    
+    def create_synced_flare_and_light_source_sequences(self) -> Tuple[Optional[List], Optional[List], Dict]:
+        """
+        🆕 新增: 协调生成一对完美同步的炫光和光源视频帧序列
+        """
+        if not self.flare_light_source_pairs:
+            print("❌ No flare/light source pairs found. Cannot generate synced sequences.")
+            return None, None, {}
+
+        # 1. 随机选择一对配对好的图片
+        flare_path, light_source_path = random.choice(self.flare_light_source_pairs)
+        
+        try:
+            # 加载图片对
+            flare_image_rgb = np.array(Image.open(flare_path).convert('RGB')).astype(np.float32) / 255.0
+            light_source_image_rgb = np.array(Image.open(light_source_path).convert('RGB')).astype(np.float32) / 255.0
+            
+            print(f"  🎭 Selected image pair:")
+            print(f"    Flare: {os.path.basename(flare_path)}")  
+            print(f"    Light source: {os.path.basename(light_source_path)}")
+            
+        except Exception as e:
+            print(f"❌ Error loading image pair: {e}")
+            return None, None, {}
+
+        # 2. 生成一份共享的"剧本"
+        sequence_script = self.prepare_sequence_parameters()
+        
+        # 3. 根据同一份"剧本"分别渲染炫光和光源视频
+        try:
+            # 渲染炫光视频 (包含反射)
+            flare_frames, flare_metadata = self.generate_flickering_video_frames(
+                base_image_rgb=flare_image_rgb,
+                sequence_script=sequence_script,
+                apply_reflection=True
+            )
+            
+            print(f"  ✅ Generated {len(flare_frames)} flare frames (with reflection)")
+            
+            # 渲染光源视频 (不含反射)
+            light_source_frames, light_source_metadata = self.generate_flickering_video_frames(
+                base_image_rgb=light_source_image_rgb,
+                sequence_script=sequence_script,
+                apply_reflection=False
+            )
+            
+            print(f"  ✅ Generated {len(light_source_frames)} light source frames (no reflection)")
+            
+            # 验证帧数一致性
+            if len(flare_frames) != len(light_source_frames):
+                print(f"⚠️  Warning: Frame count mismatch! Flare: {len(flare_frames)}, Light source: {len(light_source_frames)}")
+            
+            # 合并元数据，添加配对信息
+            combined_metadata = flare_metadata.copy()
+            combined_metadata.update({
+                'flare_image_path': flare_path,
+                'light_source_image_path': light_source_path,
+                'sync_confirmed': len(flare_frames) == len(light_source_frames),
+                'generation_method': 'synced_script_based'
+            })
+
+            return flare_frames, light_source_frames, combined_metadata
+            
+        except Exception as e:
+            print(f"❌ Error during video generation: {e}")
+            return None, None, {}
     
     def create_flare_event_sequence(self, target_resolution: Optional[Tuple[int, int]] = None,
                                   flare_position: Optional[Tuple[int, int]] = None,

@@ -38,10 +38,17 @@ generation:
   
   # 输出路径配置
   output_paths:
-    flare_events: "output/data/flare_events"     # Step 1输出：纯炫光事件
-    bg_events: "output/data/bg_events"           # Step 2输出：背景事件
-    merge_events: "output/data/merge_events"     # Step 2输出：合并事件
-    debug_output: "output/debug"                 # Debug可视化输出
+    flare_events: "output/data/flare_events"           # Step 1输出：散射+反射炫光事件
+    light_source_events: "output/data/light_source_events"  # 🆕 Step 1输出：纯光源事件
+    bg_events: "output/data/bg_events"                 # Step 2输出：背景事件
+    merge_events: "output/data/merge_events"           # Step 2输出：合并事件
+    debug_output: "output/debug"                       # Debug可视化输出
+  
+  # 🆕 Debug路径配置（用于分离调试可视化）
+  debug_paths:
+    flare_generation: "output/debug/flare_generation"                    # 炫光事件debug
+    light_source_generation: "output/debug/light_source_generation"      # 🆕 光源事件debug
+    event_composition: "output/debug/event_composition"                  # 事件合成debug
   
 # --- 数据集设置 (Data Settings) ---
 data:

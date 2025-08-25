@@ -38,20 +38,27 @@ class FlareEventGenerator:
         """
         self.config = config
         
-        # 输出路径设置
-        self.output_dir = os.path.join('output', 'data', 'flare_events')
-        os.makedirs(self.output_dir, exist_ok=True)
+        # 🔄 修改: 双路径输出设置
+        self.flare_output_dir = config['generation']['output_paths']['flare_events']
+        self.light_source_output_dir = config['generation']['output_paths']['light_source_events']  # 🆕
+        os.makedirs(self.flare_output_dir, exist_ok=True)
+        os.makedirs(self.light_source_output_dir, exist_ok=True)  # 🆕
         
-        # Debug模式设置
+        # 🔄 修改: 双路径Debug设置
         self.debug_mode = config.get('debug_mode', False)
         if self.debug_mode:
-            self.debug_dir = os.path.join('output', 'debug', 'flare_generation')
-            os.makedirs(self.debug_dir, exist_ok=True)
+            self.flare_debug_dir = config['generation']['debug_paths']['flare_generation']
+            self.light_source_debug_dir = config['generation']['debug_paths']['light_source_generation']  # 🆕
+            os.makedirs(self.flare_debug_dir, exist_ok=True)
+            os.makedirs(self.light_source_debug_dir, exist_ok=True)  # 🆕
             
-            # 初始化可视化器
+            # 初始化双路径可视化器
             resolution = (config['data']['resolution_w'], config['data']['resolution_h'])
-            self.visualizer = EventVisualizer(self.debug_dir, resolution)
-            print(f"🎯 FlareEventGenerator Debug Mode: {self.debug_dir}")
+            self.flare_visualizer = EventVisualizer(self.flare_debug_dir, resolution)
+            self.light_source_visualizer = EventVisualizer(self.light_source_debug_dir, resolution)  # 🆕
+            print(f"🎯 FlareEventGenerator Debug Mode:")
+            print(f"  Flare debug: {self.flare_debug_dir}")
+            print(f"  Light source debug: {self.light_source_debug_dir}")  # 🆕
         
         # 初始化DVS炫光生成器
         self.dvs_generator = create_flare_event_generator(config)
@@ -60,67 +67,73 @@ class FlareEventGenerator:
         flare_config = config['data']['flare_synthesis']
         self.duration_range = flare_config['duration_range']
         
-        print(f"🚀 FlareEventGenerator initialized:")
-        print(f"  Output directory: {self.output_dir}")
+        print(f"🚀 FlareEventGenerator initialized (Synced Generation):")
+        print(f"  Flare events: {self.flare_output_dir}")
+        print(f"  Light source events: {self.light_source_output_dir}")  # 🆕
         print(f"  Duration range: {self.duration_range[0]*1000:.0f}-{self.duration_range[1]*1000:.0f}ms")
         print(f"  Debug mode: {self.debug_mode}")
     
-    def generate_single_flare_sequence(self, sequence_id: int) -> str:
+    def generate_single_flare_sequence(self, sequence_id: int) -> Tuple[Optional[str], Optional[str]]:
         """
-        生成单个炫光事件序列
+        🔄 重构: 生成单个同步的炫光和光源事件序列对
         
         Args:
             sequence_id: 序列ID（用于文件命名）
             
         Returns:
-            生成的H5文件路径
+            Tuple of (flare_output_path, light_source_output_path)
         """
         start_time = time.time()
         
-        # 随机持续时间
-        duration_sec = random.uniform(self.duration_range[0], self.duration_range[1])
-        
-        # 临时修改配置以固定持续时间
-        original_range = self.config['data']['flare_synthesis']['duration_range']
-        self.config['data']['flare_synthesis']['duration_range'] = [duration_sec, duration_sec]
-        
         try:
-            # 生成炫光事件
-            flare_events, metadata, flare_frames = self.dvs_generator.generate_flare_events(cleanup=True)
+            # 1. 调用重构后的函数，获取两组事件和帧
+            print(f"🎬 Generating synced sequence {sequence_id}...")
+            flare_events, light_source_events, metadata, flare_frames, light_source_frames = self.dvs_generator.generate_synced_events(cleanup=True)
             
-            if len(flare_events) == 0:
-                print(f"⚠️  Warning: No flare events generated for sequence {sequence_id}")
-                return None
+            if flare_events is None or light_source_events is None:
+                print(f"❌ Failed to generate synced events for sequence {sequence_id}")
+                return None, None
             
-            # 创建输出文件名
+            if len(flare_events) == 0 and len(light_source_events) == 0:
+                print(f"⚠️  Warning: No events generated for sequence {sequence_id}")
+                return None, None
+
+            # 2. 创建共享的文件名基础
             timestamp = int(time.time() * 1000)
-            filename = f"flare_sequence_{timestamp}_{sequence_id:05d}.h5"
-            output_path = os.path.join(self.output_dir, filename)
+            base_filename = f"sequence_{timestamp}_{sequence_id:05d}.h5"
             
-            # 保存为标准DVS格式
-            self._save_events_dvs_format(flare_events, output_path, metadata)
+            # 3. 保存炫光事件
+            flare_filename = f"flare_{base_filename}"
+            flare_output_path = os.path.join(self.flare_output_dir, flare_filename)
+            self._save_events_dvs_format(flare_events, flare_output_path, metadata)
             
+            # 4. 保存光源事件 (🆕)
+            light_source_filename = f"light_source_{base_filename}"
+            light_source_output_path = os.path.join(self.light_source_output_dir, light_source_filename)
+            self._save_events_dvs_format(light_source_events, light_source_output_path, metadata)
+
             generation_time = time.time() - start_time
+            duration_ms = metadata.get('duration_sec', 0) * 1000
             
-            print(f"✅ Generated flare sequence {sequence_id}:")
-            print(f"  Events: {len(flare_events):,}")
-            print(f"  Duration: {duration_sec*1000:.1f}ms")
+            print(f"✅ Generated synced sequence {sequence_id}:")
+            print(f"  Flare events: {len(flare_events):,}")
+            print(f"  Light source events: {len(light_source_events):,}")
+            print(f"  Duration: {duration_ms:.1f}ms")
             print(f"  Time: {generation_time:.2f}s")
-            print(f"  File: {filename}")
+            print(f"  Files: {flare_filename} + {light_source_filename}")
             
-            # Debug可视化 - 为所有序列生成debug
+            # 5. Debug 可视化 (🆕 双路径)
             if self.debug_mode:
-                self._save_debug_visualization(flare_events, flare_frames, sequence_id, metadata)
-            
-            return output_path
+                # 炫光可视化
+                self._save_debug_visualization(flare_events, flare_frames, sequence_id, metadata, "flare")
+                # 光源可视化
+                self._save_debug_visualization(light_source_events, light_source_frames, sequence_id, metadata, "light_source")
+
+            return flare_output_path, light_source_output_path
             
         except Exception as e:
-            print(f"❌ Error generating flare sequence {sequence_id}: {e}")
-            return None
-            
-        finally:
-            # 恢复原始配置
-            self.config['data']['flare_synthesis']['duration_range'] = original_range
+            print(f"❌ Error generating synced sequence {sequence_id}: {e}")
+            return None, None
     
     def _save_events_dvs_format(self, events: np.ndarray, output_path: str, metadata: Dict):
         """
@@ -170,17 +183,29 @@ class FlareEventGenerator:
             events_group.attrs['generation_time'] = time.time()
     
     def _save_debug_visualization(self, events: np.ndarray, frames: List[np.ndarray], 
-                                sequence_id: int, metadata: Dict):
+                                sequence_id: int, metadata: Dict, event_type: str):
         """
-        保存debug可视化
+        🔄 重构: 保存debug可视化 (支持炫光和光源)
         
         Args:
-            events: 炫光事件 [N, 4] DVS格式
-            frames: 炫光图像序列
+            events: 事件数组 [N, 4] DVS格式
+            frames: 图像序列
             sequence_id: 序列ID
             metadata: 元数据
+            event_type: 事件类型 ("flare" 或 "light_source")
         """
-        debug_seq_dir = os.path.join(self.debug_dir, f"flare_sequence_{sequence_id:03d}")
+        # 根据类型选择不同的调试目录
+        if event_type == "flare":
+            base_debug_dir = self.flare_debug_dir
+            sequence_name = f"flare_sequence_{sequence_id:03d}"
+        elif event_type == "light_source":
+            base_debug_dir = self.light_source_debug_dir
+            sequence_name = f"light_source_sequence_{sequence_id:03d}"
+        else:
+            print(f"⚠️  Unknown event type: {event_type}")
+            return
+        
+        debug_seq_dir = os.path.join(base_debug_dir, sequence_name)
         os.makedirs(debug_seq_dir, exist_ok=True)
         
         # 转换事件格式为可视化格式 [x, y, t, p]
@@ -197,16 +222,16 @@ class FlareEventGenerator:
                 vis_events[:, 2] = vis_events[:, 2] - t_min
             
             # 创建事件可视化
-            self._create_flare_event_visualization(vis_events, debug_seq_dir, metadata)
+            self._create_event_visualization(vis_events, debug_seq_dir, metadata, event_type)
         
-        # 保存原始炫光图像序列
+        # 保存原始图像序列
         if frames:
-            self._save_flare_frames(frames, debug_seq_dir)
+            self._save_source_frames(frames, debug_seq_dir, event_type)
         
         # 保存元数据
-        self._save_sequence_metadata(debug_seq_dir, events, metadata)
+        self._save_sequence_metadata(debug_seq_dir, events, metadata, event_type)
     
-    def _create_flare_event_visualization(self, events: np.ndarray, output_dir: str, metadata: Dict):
+    def _create_event_visualization(self, events: np.ndarray, output_dir: str, metadata: Dict, event_type: str):
         """创建炫光事件的多分辨率可视化 - 基于原始帧率和帧数"""
         if len(events) == 0:
             return
@@ -275,9 +300,9 @@ class FlareEventGenerator:
                 frame_path = os.path.join(scale_dir, f"frame_{frame_idx:03d}.png")
                 cv2.imwrite(frame_path, frame)
     
-    def _save_flare_frames(self, frames: List[np.ndarray], output_dir: str):
-        """保存炫光图像序列"""
-        frames_dir = os.path.join(output_dir, "source_frames")
+    def _save_source_frames(self, frames: List[np.ndarray], output_dir: str, event_type: str):
+        """保存原始图像序列"""
+        frames_dir = os.path.join(output_dir, f"source_{event_type}_frames")
         os.makedirs(frames_dir, exist_ok=True)
         
         import cv2
@@ -286,13 +311,20 @@ class FlareEventGenerator:
             frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             cv2.imwrite(frame_path, frame_bgr)
     
-    def _save_sequence_metadata(self, output_dir: str, events: np.ndarray, metadata: Dict):
+    def _save_sequence_metadata(self, output_dir: str, events: np.ndarray, metadata: Dict, event_type: str):
         """保存序列元数据"""
         metadata_path = os.path.join(output_dir, "metadata.txt")
         
         with open(metadata_path, 'w') as f:
-            f.write("Flare Event Generation Metadata\n")
-            f.write("===============================\n\n")
+            if event_type == "flare":
+                f.write("Flare Event Generation Metadata\n")
+                f.write("===============================\n\n")
+            elif event_type == "light_source":
+                f.write("Light Source Event Generation Metadata\n")
+                f.write("======================================\n\n")
+            else:
+                f.write("Event Generation Metadata\n")
+                f.write("=========================\n\n")
             
             f.write(f"Events: {len(events):,}\n")
             f.write(f"Duration: {metadata.get('duration_sec', 0)*1000:.1f}ms\n")
@@ -310,38 +342,46 @@ class FlareEventGenerator:
                 f.write(f"Polarity: {pos_events} ON ({pos_events/len(events)*100:.1f}%), ")
                 f.write(f"{neg_events} OFF ({neg_events/len(events)*100:.1f}%)\n")
     
-    def generate_batch(self, num_sequences: int) -> List[str]:
+    def generate_batch(self, num_sequences: int) -> Tuple[List[str], List[str]]:
         """
-        批量生成炫光事件序列
+        🔄 重构: 批量生成同步的炫光和光源事件序列
         
         Args:
             num_sequences: 要生成的序列数量
             
         Returns:
-            生成的H5文件路径列表
+            Tuple of (flare_file_paths, light_source_file_paths)
         """
-        print(f"\n🚀 Generating {num_sequences} flare event sequences...")
+        print(f"\n🚀 Generating {num_sequences} synced flare/light-source event sequences...")
         
-        generated_files = []
+        flare_files = []
+        light_source_files = []
         start_time = time.time()
         
         for i in range(num_sequences):
-            print(f"\n--- Generating sequence {i+1}/{num_sequences} ---")
+            print(f"\n--- Generating synced sequence {i+1}/{num_sequences} ---")
             
-            file_path = self.generate_single_flare_sequence(i)
-            if file_path:
-                generated_files.append(file_path)
+            flare_path, light_source_path = self.generate_single_flare_sequence(i)
+            if flare_path and light_source_path:
+                flare_files.append(flare_path)
+                light_source_files.append(light_source_path)
+            elif flare_path or light_source_path:
+                # 部分生成成功，但同步要求两个都成功
+                print(f"⚠️  Sequence {i} partially failed - discarded for sync consistency")
         
         total_time = time.time() - start_time
-        success_rate = len(generated_files) / num_sequences * 100
+        success_rate = len(flare_files) / num_sequences * 100
         
-        print(f"\n✅ Flare event generation complete:")
-        print(f"  Generated: {len(generated_files)}/{num_sequences} sequences ({success_rate:.1f}%)")
+        print(f"\n✅ Synced event generation complete:")
+        print(f"  Generated: {len(flare_files)}/{num_sequences} synced pairs ({success_rate:.1f}%)")
+        print(f"  Flare files: {len(flare_files)}")
+        print(f"  Light source files: {len(light_source_files)}")
         print(f"  Total time: {total_time:.1f}s")
-        print(f"  Average: {total_time/num_sequences:.1f}s per sequence")
-        print(f"  Output: {self.output_dir}")
+        print(f"  Average: {total_time/num_sequences:.1f}s per synced pair")
+        print(f"  Flare output: {self.flare_output_dir}")
+        print(f"  Light source output: {self.light_source_output_dir}")
         
-        return generated_files
+        return flare_files, light_source_files
 
 
 def test_flare_generator():

@@ -1167,6 +1167,76 @@ class DVSFlareEventGenerator:
         if self.debug_mode:
             os.makedirs(self.debug_save_dir, exist_ok=True)
             print(f"🚨 DEBUG MODE (DVS): Will save flare sequences to {self.debug_save_dir}")
+    
+    def generate_synced_events(self, cleanup: bool = True) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Dict, List, List]:
+        """
+        🔄 重构: 生成一对同步的炫光和光源事件
+        
+        Args:
+            cleanup: Whether to cleanup temporary files
+            
+        Returns:
+            Tuple of (flare_events, light_source_events, metadata, flare_frames, light_source_frames)
+        """
+        timing_info = {}
+        total_start = time.time()
+        
+        try:
+            # 1. 调用新的合成器函数获取两组视频帧
+            print("🎬 Generating synced flare and light source video frames...")
+            video_start = time.time()
+            
+            flare_frames, light_source_frames, metadata = self.flare_synthesizer.create_synced_flare_and_light_source_sequences()
+            
+            if not flare_frames or not light_source_frames:
+                print("❌ Failed to generate synced video frames")
+                return None, None, {}, [], []
+            
+            timing_info['video_generation'] = time.time() - video_start
+            print(f"  ✅ Generated {len(flare_frames)} flare frames, {len(light_source_frames)} light source frames ({timing_info['video_generation']:.2f}s)")
+
+            # 2. 分别对两组视频帧运行DVS仿真
+            # 仿真炫光事件
+            flare_sim_start = time.time()
+            print("🎯 Simulating flare events (with reflection)...")
+            flare_events = self._run_dvs_simulation(flare_frames, metadata, "flare", cleanup)
+            timing_info['flare_simulation'] = time.time() - flare_sim_start
+            
+            if flare_events is None or len(flare_events) == 0:
+                print("⚠️  Warning: No flare events generated")
+                flare_events = np.array([]).reshape(0, 4)
+            
+            print(f"  ✅ Flare events: {len(flare_events):,} ({timing_info['flare_simulation']:.2f}s)")
+            
+            # 仿真光源事件
+            light_sim_start = time.time()
+            print("💡 Simulating light source events (no reflection)...")
+            light_source_events = self._run_dvs_simulation(light_source_frames, metadata, "light_source", cleanup)
+            timing_info['light_source_simulation'] = time.time() - light_sim_start
+            
+            if light_source_events is None or len(light_source_events) == 0:
+                print("⚠️  Warning: No light source events generated")
+                light_source_events = np.array([]).reshape(0, 4)
+            
+            print(f"  ✅ Light source events: {len(light_source_events):,} ({timing_info['light_source_simulation']:.2f}s)")
+            
+            # 3. 更新元数据
+            timing_info['total_time'] = time.time() - total_start
+            metadata.update(timing_info)
+            metadata.update({
+                'flare_event_count': len(flare_events),
+                'light_source_event_count': len(light_source_events),
+                'sync_generation': True,
+                'simulator_type': 'dvs_voltmeter'
+            })
+            
+            print(f"🎉 Synced event generation complete: {timing_info['total_time']:.2f}s total")
+            
+            return flare_events, light_source_events, metadata, flare_frames, light_source_frames
+            
+        except Exception as e:
+            print(f"❌ Error in synced event generation: {e}")
+            return None, None, {}, [], []
         
     def generate_flare_events(self, temp_dir: Optional[str] = None, 
                             cleanup: bool = True) -> Tuple[np.ndarray, Dict, List[np.ndarray]]:
