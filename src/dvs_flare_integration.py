@@ -1245,7 +1245,7 @@ class DVSFlareEventGenerator:
         
         Args:
             frames: 视频帧列表
-            metadata: 元数据
+            metadata: 元数据 (包含DVS参数)
             event_type: 事件类型 ("flare" 或 "light_source")
             cleanup: 是否清理临时文件
             
@@ -1260,8 +1260,15 @@ class DVSFlareEventGenerator:
             # Step 1: 保存视频帧到临时目录
             sequence_dir = self._save_video_for_dvs_simulator(frames, temp_dir, metadata)
             
-            # Step 2: 运行DVS仿真器
-            events_array = self._run_dvs_simulator(temp_dir)
+            # Step 2: 🆕 使用剧本中的k1参数运行DVS仿真器
+            dvs_k1 = metadata.get('dvs_k1', None)
+            if dvs_k1:
+                print(f"  Using fixed k1 from script: {dvs_k1:.3f}")
+                events_array = self._run_dvs_simulator_with_k1(temp_dir, dvs_k1)
+            else:
+                # 回退到原始方法（不应该发生）
+                print(f"  Warning: No k1 in script, using random k1")
+                events_array = self._run_dvs_simulator(temp_dir)
             
             return events_array
             
@@ -1273,6 +1280,102 @@ class DVSFlareEventGenerator:
             # 清理临时文件
             if cleanup_temp and os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
+    
+    def _run_dvs_simulator_with_k1(self, input_dir: str, fixed_k1: float) -> np.ndarray:
+        """
+        🆕 使用固定k1参数运行DVS-Voltmeter仿真器
+        
+        Args:
+            input_dir: 包含视频帧和info.txt的目录
+            fixed_k1: 固定的k1参数值
+            
+        Returns:
+            事件数组格式 [timestamp_us, x, y, polarity]
+        """
+        # 更改到仿真器目录
+        original_cwd = os.getcwd()
+        
+        try:
+            os.chdir(self.simulator_path)
+            
+            # 准备仿真器配置（使用固定k1）
+            self._prepare_simulator_config_with_k1(input_dir, fixed_k1)
+            
+            # 运行仿真器
+            result = subprocess.run([
+                sys.executable, "main.py"
+            ], capture_output=True, text=True, timeout=300)  # 5分钟超时
+            
+            if result.returncode != 0:
+                raise RuntimeError(f"DVS simulator failed: {result.stderr}")
+            
+            # 加载结果事件
+            return self._load_dvs_results()
+            
+        finally:
+            os.chdir(original_cwd)
+    
+    def _prepare_simulator_config_with_k1(self, input_dir: str, fixed_k1: float):
+        """
+        🆕 使用固定k1参数准备DVS仿真器配置
+        
+        Args:
+            input_dir: 包含视频帧的目录
+            fixed_k1: 固定的k1参数值
+        """
+        config_path = os.path.join(self.simulator_path, "src/config.py")
+        
+        # 读取当前配置
+        with open(config_path, 'r') as f:
+            config_content = f.read()
+        
+        # 创建备份（如果不存在）
+        backup_path = config_path + ".backup"
+        if not os.path.exists(backup_path):
+            with open(backup_path, 'w') as f:
+                f.write(config_content)
+        
+        # 使用正则表达式动态替换路径
+        import re
+        modified_content = re.sub(
+            r"__C\.INPUT\.INTERP_PATH = ['\"].*?['\"]",
+            f'__C.INPUT.INTERP_PATH = "{input_dir}"',
+            config_content
+        )
+        
+        # 🆕 修改DVS参数，使用固定的k1值
+        dvs_config = self.config['data']['event_simulator']['dvs_voltmeter']
+        if 'dvs346' in modified_content.lower():
+            # DVS346配置
+            k_values = list(dvs_config['parameters']['dvs346_k'])
+            k_values[0] = fixed_k1  # 使用固定的k1值
+            
+            print(f"  Using fixed k1: {k_values[0]:.3f} (range: 5.0-16.0)")
+            
+            k_str = f"[{', '.join(map(str, k_values))}]"
+            modified_content = re.sub(
+                r"__C\.SENSOR\.K = \[.*?\]",
+                f"__C.SENSOR.K = {k_str}",
+                modified_content
+            )
+            
+        elif 'DVS240' in modified_content:
+            # DVS240配置  
+            k_values = list(dvs_config['parameters']['dvs240_k'])
+            k_values[0] = fixed_k1  # 使用固定的k1值
+            
+            print(f"  Using fixed k1: {k_values[0]:.3f} (DVS240)")
+            
+            k_str = f"[{', '.join(map(str, k_values))}]"
+            modified_content = re.sub(
+                r"__C\.SENSOR\.K = \[.*?\]",
+                f"__C.SENSOR.K = {k_str}",
+                modified_content
+            )
+        
+        # 写入修改后的配置
+        with open(config_path, 'w') as f:
+            f.write(modified_content)
         
     def generate_flare_events(self, temp_dir: Optional[str] = None, 
                             cleanup: bool = True) -> Tuple[np.ndarray, Dict, List[np.ndarray]]:

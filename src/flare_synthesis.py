@@ -348,7 +348,16 @@ class FlareFlickeringSynthesizer:
                 'time_seed': random.random() * 50
             }
 
-        # 6. 将所有参数打包成一个"剧本"
+        # 6. 🆕 生成DVS仿真参数 (确保炫光和光源使用相同的k1)
+        # 复制DVS仿真器中的k1随机化逻辑
+        if random.random() < 0.5:
+            # 低范围：5.0-7.0 (2个单位长度)
+            dvs_k1 = random.uniform(5.0, 7.0)
+        else:
+            # 高范围：7.0-16.0 (9个单位长度)
+            dvs_k1 = random.uniform(7.0, 16.0)
+
+        # 7. 将所有参数打包成一个"剧本"
         script = {
             "duration": duration,
             "frequency": frequency,
@@ -359,10 +368,11 @@ class FlareFlickeringSynthesizer:
             "transform_seed": transform_seed,
             "reflection_params": reflection_params,
             "global_scale_factor": random.uniform(*self.synthesis_config.get('intensity_scale', [1.0, 1.0])),
-            "num_frames": num_frames
+            "num_frames": num_frames,
+            "dvs_k1": dvs_k1  # 🆕 DVS k1参数
         }
         
-        print(f"  📋 Generated sequence script: {duration*1000:.1f}ms, {frequency:.1f}Hz, {fps}fps, {len(flicker_curve)} frames")
+        print(f"  📋 Generated sequence script: {duration*1000:.1f}ms, {frequency:.1f}Hz, {fps}fps, {len(flicker_curve)} frames, k1={dvs_k1:.3f}")
         
         return script
     
