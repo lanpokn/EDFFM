@@ -26,7 +26,7 @@ def run_step1_flare_generation(config):
     generated_files = flare_generator.generate_batch(total_sequences)
     
     print(f"\n✅ Step 1 Complete: Generated {len(generated_files)} flare event files")
-    print(f"   Output directory: {flare_generator.output_dir}")
+    # print(f"   Output directory: {flare_generator.output_dir}")
     
     return generated_files
 
