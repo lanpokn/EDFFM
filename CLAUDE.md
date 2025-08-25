@@ -10,12 +10,13 @@ EventMamba-FX Two-Step Event Generator是一个**解耦的事件数据生成系�
 - 环境包含必需依赖：PyTorch, NumPy, H5py, OpenCV, YAML, tqdm等
 - Python 3.10.18，推荐GPU环境（GLSL反射炫光生成需要CUDA加速）
 
-## 🚀 系统状态：两步解耦架构 + 散射反射炫光融合
+## 🚀 系统状态：两步解耦架构 + 散射反射炫光融合 + 同步光源事件
 
 ### ✅ 核心架构特性
-- **Step 1**: 散射+反射炫光融合生成器 → `output/data/flare_events/*.h5`
-  - Flare7K散射炫光 + GLSL反射炫光融合
-  - 光源检测自动生成连续反射效果
+- **Step 1**: 散射+反射炫光融合生成器 + 同步光源事件生成器
+  - `output/data/flare_events/*.h5` - 散射炫光 + GLSL反射炫光融合 🆕
+  - `output/data/light_source_events/*.h5` - 纯光源事件（无反射） 🆕
+  - **完美像素级时间戳级对齐**: 使用共享"剧本"确保同步
 - **Step 2**: 事件合成器 → `output/data/bg_events/*.h5` + `output/data/merge_events/*.h5`
 - **标准DVS格式**: `/events/t, /events/x, /events/y, /events/p`
 - **无特征提取**: 输出原始事件数据，无任何后处理
@@ -24,11 +25,17 @@ EventMamba-FX Two-Step Event Generator是一个**解耦的事件数据生成系�
 
 ### 📊 新输出格式 (标准DVS H5格式)
 ```bash
-# Step 1 输出：散射+反射融合炫光事件
-output/data/flare_events/flare_sequence_xxx.h5
+# Step 1 输出：同步的炫光事件 + 光源事件对
+output/data/flare_events/flare_sequence_xxx.h5          # 散射+反射融合炫光事件
 ├── /events/t  [N] int64    # 时间戳 (微秒)
 ├── /events/x  [N] uint16   # X坐标
 ├── /events/y  [N] uint16   # Y坐标  
+└── /events/p  [N] int8     # 极性 (1/-1)
+
+output/data/light_source_events/light_source_sequence_xxx.h5  # 🆕 纯光源事件（同名同步）
+├── /events/t  [N] int64    # 时间戳 (微秒) - 与炫光事件完美同步
+├── /events/x  [N] uint16   # X坐标 - 与炫光事件完美对齐
+├── /events/y  [N] uint16   # Y坐标 - 与炫光事件完美对齐
 └── /events/p  [N] int8     # 极性 (1/-1)
 
 # Step 2 输出：背景事件 + 合并事件
@@ -39,12 +46,12 @@ output/data/merge_events/composed_sequence_xxx_merge.h5  # 合并事件
 
 ### 🎮 新使用方式
 ```bash
-# 完整流程
+# 完整流程 - 生成同步的炫光/光源事件对 + 事件合成
 python main.py --debug
 
 # 分步执行  
-python main.py --step 1 --debug  # 只生成炫光事件
-python main.py --step 2 --debug  # 只合成事件 (需要Step1先完成)
+python main.py --step 1 --debug  # 🆕 生成同步的炫光+光源事件对
+python main.py --step 2 --debug  # 合成事件 (需要Step1先完成)
 
 # 测试系统
 python test_new_system.py
@@ -86,31 +93,41 @@ EventMamba-FX-Two-Step-Generator/
         └── event_composition/       # Step2 debug
 ```
 
-### 新数据流程 (散射+反射融合)
+### 🆕 同步光源事件生成数据流程 ("剧本"式架构)
 ```mermaid
 graph TD
-    subgraph "Step 1: 散射+反射炫光融合生成"
-        A[Flare7K散射图像] --> B[炫光序列合成]
-        B --> C[光源检测]
-        C --> D[GLSL反射炫光生成]
-        B --> E[散射+反射融合]
-        D --> E
-        E --> F[DVS物理仿真]
-        F --> G[融合炫光事件]
-        G --> H[flare_events/*.h5]
+    subgraph "Step 1: 同步炫光+光源事件生成"
+        A[Flare7K图片配对] --> B[炫光图片+光源图片]
+        B --> C[🎬 生成共享"剧本"]
+        C --> D[频闪曲线+运动路径+变换参数+反射参数]
+        
+        D --> E[炫光视频渲染]
+        D --> F[光源视频渲染]
+        B --> E
+        B --> F
+        
+        E --> G[散射+反射融合]
+        F --> H[纯光源序列]
+        
+        G --> I[DVS仿真-炫光]
+        H --> J[DVS仿真-光源]
+        
+        I --> K[flare_events/*.h5]
+        J --> L[🆕 light_source_events/*.h5]
     end
     
     subgraph "Step 2: 事件合成"
-        I[DSEC背景事件] --> K[事件合成器]
-        H --> K
-        K --> L[bg_events/*.h5]
-        K --> M[merge_events/*.h5]
+        M[DSEC背景事件] --> O[事件合成器]
+        K --> O
+        O --> P[bg_events/*.h5]
+        O --> Q[merge_events/*.h5]
     end
     
     subgraph "Debug可视化"
-        G --> N[Step1 Debug]
-        L --> O[Step2 Debug]
-        M --> O
+        K --> R[炫光事件Debug]
+        L --> S[🆕 光源事件Debug]
+        P --> T[Step2 Debug]
+        Q --> T
     end
 ```
 
@@ -206,16 +223,19 @@ merge_events/*.h5:    背景+炫光合并事件，时间戳 0-100ms
 
 ## 🛠️ 新Debug模式功能
 
-### Step 1 Debug输出
+### 🆕 Step 1 Debug输出 (双路径)
 ```
 output/debug/flare_generation/
 └── flare_sequence_XXX/
-    ├── events_temporal_0.5x/    # 多分辨率事件可视化
-    ├── events_temporal_1x/      # (0.5x, 1x, 2x, 4x)
-    ├── events_temporal_2x/
-    ├── events_temporal_4x/
-    ├── source_frames/           # 原始炫光图像序列
+    ├── events_temporal_0.5x/    # 炫光事件可视化
+    ├── source_flare_frames/     # 原始炫光图像序列  
     └── metadata.txt             # 炫光生成元数据
+
+output/debug/light_source_generation/     # 🆕 光源事件Debug
+└── light_source_sequence_XXX/
+    ├── events_temporal_0.5x/    # 光源事件可视化
+    ├── source_light_source_frames/  # 原始光源图像序列
+    └── metadata.txt             # 光源生成元数据
 ```
 
 ### Step 2 Debug输出  

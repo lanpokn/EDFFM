@@ -1199,7 +1199,7 @@ class DVSFlareEventGenerator:
             # 仿真炫光事件
             flare_sim_start = time.time()
             print("🎯 Simulating flare events (with reflection)...")
-            flare_events = self._run_dvs_simulation(flare_frames, metadata, "flare", cleanup)
+            flare_events = self._simulate_events_from_frames(flare_frames, metadata, "flare", cleanup)
             timing_info['flare_simulation'] = time.time() - flare_sim_start
             
             if flare_events is None or len(flare_events) == 0:
@@ -1211,7 +1211,7 @@ class DVSFlareEventGenerator:
             # 仿真光源事件
             light_sim_start = time.time()
             print("💡 Simulating light source events (no reflection)...")
-            light_source_events = self._run_dvs_simulation(light_source_frames, metadata, "light_source", cleanup)
+            light_source_events = self._simulate_events_from_frames(light_source_frames, metadata, "light_source", cleanup)
             timing_info['light_source_simulation'] = time.time() - light_sim_start
             
             if light_source_events is None or len(light_source_events) == 0:
@@ -1237,6 +1237,42 @@ class DVSFlareEventGenerator:
         except Exception as e:
             print(f"❌ Error in synced event generation: {e}")
             return None, None, {}, [], []
+    
+    def _simulate_events_from_frames(self, frames: List[np.ndarray], metadata: Dict, 
+                                   event_type: str, cleanup: bool) -> Optional[np.ndarray]:
+        """
+        🆕 从视频帧生成DVS事件
+        
+        Args:
+            frames: 视频帧列表
+            metadata: 元数据
+            event_type: 事件类型 ("flare" 或 "light_source")
+            cleanup: 是否清理临时文件
+            
+        Returns:
+            事件数组 [timestamp_us, x, y, polarity] 或 None
+        """
+        # 创建临时目录
+        temp_dir = tempfile.mkdtemp(prefix=f"{event_type}_events_")
+        cleanup_temp = cleanup
+        
+        try:
+            # Step 1: 保存视频帧到临时目录
+            sequence_dir = self._save_video_for_dvs_simulator(frames, temp_dir, metadata)
+            
+            # Step 2: 运行DVS仿真器
+            events_array = self._run_dvs_simulator(temp_dir)
+            
+            return events_array
+            
+        except Exception as e:
+            print(f"⚠️  Error simulating {event_type} events: {e}")
+            return None
+            
+        finally:
+            # 清理临时文件
+            if cleanup_temp and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
         
     def generate_flare_events(self, temp_dir: Optional[str] = None, 
                             cleanup: bool = True) -> Tuple[np.ndarray, Dict, List[np.ndarray]]:
