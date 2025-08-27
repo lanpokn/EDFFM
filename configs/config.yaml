@@ -28,8 +28,8 @@ run:
 # --- 两步生成管线设置 (Two-Step Generation Pipeline) ---
 generation:
   # Step 1: 炫光事件生成数量
-  num_train_sequences: 10      # 训练用炫光序列数
-  num_val_sequences: 5         # 验证用炫光序列数
+  num_train_sequences: 2000      # 训练用炫光序列数
+  num_val_sequences: 50         # 验证用炫光序列数
   num_test_sequences: 0        # 测试用炫光序列数 (可选)
   
   # Debug模式参数
