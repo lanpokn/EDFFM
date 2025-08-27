@@ -40,9 +40,9 @@ output/data/light_source_events/light_source_sequence_xxx.h5  # 🆕 纯光源�
 ├── /events/y  [N] uint16   # Y坐标 - 与炫光事件完美对齐
 └── /events/p  [N] int8     # 极性 (1/-1)
 
-# Step 2 输出：背景事件 + 合并事件
-output/data/bg_events/composed_sequence_xxx_bg.h5      # 背景事件
-output/data/merge_events/composed_sequence_xxx_merge.h5  # 合并事件
+# Step 2 输出：三元合成事件
+output/data/background_with_light_events/composed_sequence_xxx_bg_light.h5  # 背景+光源事件
+output/data/full_scene_events/composed_sequence_xxx_full_scene.h5           # 背景+光源+炫光事件
 # 同样的 /events/* 格式
 ```
 
@@ -67,10 +67,10 @@ EventMamba-FX-Two-Step-Generator/
 ├── main.py                          # 两步流程主入口 🆕
 ├── test_new_system.py               # 系统测试脚本 🆕
 ├── configs/
-│   └── config.yaml                  # 两步模式配置 🔄
+│   └── config.yaml                  # 两步模式配置 ✅ 更新
 ├── src/                             # 核心组件
 │   ├── flare_event_generator.py     # Step1: 独立炫光生成器 🆕
-│   ├── event_composer.py            # Step2: 事件合成器 🆕
+│   ├── event_composer.py            # Step2: 事件合成器 ✅ 重构完成
 │   ├── flare_synthesis.py           # 炫光图像合成 ✅
 │   ├── dvs_flare_integration.py     # DVS仿真器集成 ✅
 │   ├── dsec_efficient.py            # DSEC背景加载 ✅
@@ -86,10 +86,11 @@ EventMamba-FX-Two-Step-Generator/
 ├── data/
 │   └── bg_events/                   # DSEC背景事件(输入) ✅
 └── output/
-    ├── data/                        # 新输出结构 🆕
-    │   ├── flare_events/            # Step1: 纯炫光事件
-    │   ├── bg_events/               # Step2: 背景事件
-    │   └── merge_events/            # Step2: 合并事件
+    ├── data/                        # 新输出结构 ✅ 更新
+    │   ├── flare_events/            # Step1: 散射+反射炫光事件
+    │   ├── light_source_events/     # Step1: 纯光源事件
+    │   ├── background_with_light_events/ # Step2: 背景+光源事件
+    │   └── full_scene_events/       # Step2: 完整场景事件
     └── debug/                       # Debug可视化 🆕
         ├── flare_generation/        # Step1 debug
         └── event_composition/       # Step2 debug

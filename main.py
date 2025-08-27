@@ -49,8 +49,8 @@ def run_step2_event_composition(config):
     bg_files, merge_files = event_composer.compose_batch()
     
     print(f"\n✅ Step 2 Complete: Generated {len(bg_files)} background + {len(merge_files)} merged event files")
-    print(f"   Background events: {event_composer.bg_events_dir}")
-    print(f"   Merged events: {event_composer.merge_events_dir}")
+    print(f"   Stage 1 (BG+Light): {event_composer.background_with_light_dir}")
+    print(f"   Stage 2 (Full Scene): {event_composer.full_scene_events_dir}")
     
     return bg_files, merge_files
 
@@ -71,8 +71,8 @@ def run_both_steps(config):
     
     print(f"\n🎉 Complete Pipeline Success!")
     print(f"   Flare events: {len(flare_files)} files")
-    print(f"   Background events: {len(bg_files)} files") 
-    print(f"   Merged events: {len(merge_files)} files")
+    print(f"   Stage 1 (BG+Light): {len(bg_files)} files") 
+    print(f"   Stage 2 (Full Scene): {len(merge_files)} files")
     print(f"   Total processing complete.")
 
 def main(config, step=None):
