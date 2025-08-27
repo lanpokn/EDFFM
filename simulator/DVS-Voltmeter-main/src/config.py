@@ -25,15 +25,15 @@ __C.SENSOR.CAMERA_TYPE = 'DVS346'
 
 __C.SENSOR.K = None
 if cfg.SENSOR.CAMERA_TYPE == 'DVS346':
-    __C.SENSOR.K = [8.045306024066067, 20, 0.0001, 1e-7, 5e-9, 1e-05]
+    __C.SENSOR.K = [5.879478470831205, 20, 0.0001, 1e-7, 5e-9, 1e-05]
 elif cfg.SENSOR.CAMERA_TYPE == 'DVS240':
-    __C.SENSOR.K = [8.045306024066067, 20, 0.0001, 1e-7, 5e-9, 1e-05]
+    __C.SENSOR.K = [5.879478470831205, 20, 0.0001, 1e-7, 5e-9, 1e-05]
 
 
 # Directories
 __C.DIR                                 = edict()
-__C.DIR.IN_PATH = '/tmp/light_source_events_logcmsmu/'
-__C.DIR.OUT_PATH = '/tmp/light_source_events_logcmsmu/'
+__C.DIR.IN_PATH = '/tmp/light_source_events__9n6k19v/'
+__C.DIR.OUT_PATH = '/tmp/light_source_events__9n6k19v/'
 
 
 # Visualize
