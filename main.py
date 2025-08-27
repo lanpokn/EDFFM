@@ -3,13 +3,15 @@ import yaml
 import os
 from tqdm import tqdm
 
-from src.flare_event_generator import FlareEventGenerator
 from src.event_composer import EventComposer
 
 def run_step1_flare_generation(config):
     """Step 1: 生成纯炫光事件数据"""
     print("🚀 Step 1: Flare Event Generation")
     print("=" * 50)
+    
+    # 只在需要时导入FlareEventGenerator
+    from src.flare_event_generator import FlareEventGenerator
     
     # 获取生成数量
     generation_config = config.get('generation', {})
@@ -49,8 +51,12 @@ def run_step2_event_composition(config):
     bg_files, merge_files = event_composer.compose_batch()
     
     print(f"\n✅ Step 2 Complete: Generated {len(bg_files)} background + {len(merge_files)} merged event files")
-    print(f"   Stage 1 (BG+Light): {event_composer.background_with_light_dir}")
-    print(f"   Stage 2 (Full Scene): {event_composer.full_scene_events_dir}")
+    
+    # 输出所有方法的目录信息
+    for method_name, paths in event_composer.output_dirs.items():
+        print(f"   {method_name} method:")
+        print(f"     - Stage 1 (BG+Light): {paths['stage1']}")
+        print(f"     - Stage 2 (Full Scene): {paths['stage2']}")
     
     return bg_files, merge_files
 

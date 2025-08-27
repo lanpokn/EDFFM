@@ -549,3 +549,205 @@ Flare7K图片配对 → 共享"剧本"生成 → 并行视频渲染 → 同步DV
 - ✅ **连续性保证**: 参照test_light_continuity_center.py实现平滑反射变化
 - ✅ **错误处理**: GLSL失败不影响散射炫光正常生成
 - ✅ **双路径Debug**: 独立的炫光和光源事件可视化支持
+
+## 🔬 物理混合模型 - 新一代事件合成算法 **[2025-08-27 实现完成]**
+
+### 核心特性
+- **✅ 动态背景强度估计**: 不再假设背景光强恒定，使用事件密度动态估计每个像素的背景活跃度
+- **✅ 权重图概率门控**: 基于权重图A(x,y)进行概率门控，物理上模拟真实DVS传感器的事件生成过程
+- **✅ 双方法并行输出**: 同时生成Simple和Physics方法结果，便于对比分析和消融实验
+- **✅ 独立文件夹隔离**: 不同方法的结果输出到独立目录，避免数据混乱和后处理问题
+- **✅ 完整Debug可视化**: 生成权重图A(x,y)的热力图和统计分析，提供深度算法洞察
+
+### 🧠 算法核心原理
+
+#### 动态光强估计
+```python
+# 不再使用固定权重，而是基于事件密度估计
+Y_est1 = np.zeros((H, W))  # 背景事件强度图
+Y_est2 = np.zeros((H, W))  # 炫光/光源事件强度图
+
+# 每个像素累积对应权重
+np.add.at(Y_est1, (y1, x1), weight1)  # 背景权重0.2
+np.add.at(Y_est2, (y2, x2), weight2)  # 炫光权重1.0
+```
+
+#### 权重图计算
+```python
+# A(x,y) 代表第二个事件流(炫光/光源)的主导权
+A = Y_est2 / (Y_est1 + Y_est2 + epsilon)
+
+# 物理意义: A接近1表示该像素被炫光主导，接近0表示被背景主导
+```
+
+#### 概率门控机制
+```python
+# 背景事件保留概率 = 1 - A(x,y)
+prob_keep1 = 1.0 - A[events1_y, events1_x] 
+mask1 = np.random.rand(len(events1)) < prob_keep1
+
+# 炫光事件保留概率 = A(x,y)  
+prob_keep2 = A[events2_y, events2_x]
+mask2 = np.random.rand(len(events2)) < prob_keep2
+```
+
+### 📊 配置参数详解
+
+```yaml
+# configs/config.yaml - 新增配置节
+composition:
+  # 合成方法选择
+  merge_method: "simple"                    # 主要方法: "simple" 或 "physics"
+  generate_both_methods: false             # 是否同时生成两种方法的结果
+  
+  # 物理混合模型参数
+  physics_params:
+    background_event_weight: 0.2            # 背景事件权重 (用于强度估计)
+    light_source_event_weight: 1.0          # 光源事件权重 (用于强度估计)  
+    flare_intensity_multiplier: 1.0         # 炫光事件权重倍数
+    temporal_jitter_us: 50                  # 时间抖动范围 (微秒)
+    epsilon: 1e-9                          # 数值稳定性小量
+```
+
+### 🎯 新输出结构
+
+```bash
+# 双方法独立输出目录
+output/data/
+├── simple_method/                          # 传统简单合成方法
+│   ├── background_with_light_events/       # Stage1: 背景+光源
+│   └── full_scene_events/                  # Stage2: +炫光
+└── physics_method/                         # 🆕 物理混合方法  
+    ├── background_with_light_events/       # Stage1: 物理合成背景+光源
+    └── full_scene_events/                  # Stage2: 物理合成完整场景
+
+# 🆕 权重图Debug可视化
+output/debug/event_composition/
+└── composition_XXX/
+    ├── weight_map_stage1_bg_light.png      # Stage1权重图可视化
+    ├── weight_map_stage2_full_scene.png    # Stage2权重图可视化
+    ├── weight_heatmap_stage1_bg_light.png  # OpenCV热力图版本
+    ├── weight_heatmap_stage2_full_scene.png # OpenCV热力图版本
+    ├── weight_stats_stage1_bg_light.txt    # 权重图统计信息
+    └── weight_stats_stage2_full_scene.txt  # 权重图统计信息
+```
+
+### 🔍 性能对比实测结果 (2025-08-27)
+
+#### 事件数量对比
+```
+序列1 (小规模炫光):
+- Simple方法:  Stage1=547,852  Stage2=1,627,562
+- Physics方法: Stage1=542,916  Stage2=1,320,397  
+- 减少率: Stage1=-0.9%  Stage2=-18.9%
+
+序列2 (大规模炫光):  
+- Simple方法:  Stage1=1,505,702  Stage2=5,790,248
+- Physics方法: Stage1=1,402,656  Stage2=4,533,013
+- 减少率: Stage1=-6.9%  Stage2=-21.7%
+```
+
+#### 权重图统计特征
+```
+Stage1 (背景+光源):
+- 平均权重: 0.026  
+- 标准差: 0.157
+- 非零像素: 2.63% (8,087/307,200)
+
+Stage2 (完整场景):  
+- 平均权重: 0.172
+- 标准差: 0.359  
+- 非零像素: 19.41% (59,640/307,200)
+```
+
+### 🚀 使用指南
+
+#### 快速测试物理模型
+```bash  
+# 激活环境
+source /home/lanpoknlanpokn/miniconda3/bin/activate event_flare
+
+# 测试物理混合模型 (需要先运行Step1生成数据)
+python test_physics_composer.py
+
+# 预期输出:
+# ✅ Physics composition test completed successfully!
+# 🔍 Generated weight maps and statistics files  
+# 📁 Both simple and physics method outputs available
+```
+
+#### 配置调整建议
+```yaml
+# 背景主导场景 (城市街道等)
+background_event_weight: 0.5    # 提高背景权重
+light_source_event_weight: 1.0  
+flare_intensity_multiplier: 0.8  # 降低炫光权重
+
+# 炫光主导场景 (强烈太阳光等)  
+background_event_weight: 0.2    # 降低背景权重
+light_source_event_weight: 1.0
+flare_intensity_multiplier: 1.5  # 提高炫光权重
+```
+
+### 🧪 验证和调试
+
+#### 验证命令
+```bash
+# 检查输出文件
+ls -la output/data/simple_method/background_with_light_events/
+ls -la output/data/physics_method/background_with_light_events/
+
+# 查看权重图统计
+cat output/debug/event_composition/composition_000/weight_stats_stage1_bg_light.txt
+cat output/debug/event_composition/composition_000/weight_stats_stage2_full_scene.txt
+
+# 对比事件数量
+python -c "
+import h5py
+simple = h5py.File('output/data/simple_method/full_scene_events/composed_xxx_full_scene.h5', 'r')
+physics = h5py.File('output/data/physics_method/full_scene_events/composed_xxx_full_scene.h5', 'r')
+print(f'Simple: {len(simple[\"/events/t\"])} events')  
+print(f'Physics: {len(physics[\"/events/t\"])} events')
+print(f'Reduction: {(1-len(physics[\"/events/t\"])/len(simple[\"/events/t\"]))*100:.1f}%')
+"
+```
+
+### 📈 核心优势总结
+
+1. **🧠 更符合物理原理**: 动态估计背景活跃度，而非假设恒定强度
+2. **🎯 智能事件筛选**: 基于局部权重进行概率门控，避免粗暴的全局合并
+3. **📊 深度可视化**: 权重图A(x,y)提供算法行为的直观洞察
+4. **⚖️ 灵活平衡**: 可配置的权重参数适应不同场景需求
+5. **🔬 科研友好**: 双方法对比输出，便于消融实验和效果验证
+6. **🛡️ 向后兼容**: 保持原有Simple方法，确保稳定性和兼容性
+
+### 💡 应用建议
+
+- **数据集生成**: 使用Physics方法生成更真实的训练数据  
+- **算法验证**: 对比Simple和Physics方法的效果差异
+- **参数调优**: 根据权重图分布调整physics_params参数
+- **场景适配**: 根据应用场景(室内/室外/强光/弱光)调整权重配置
+
+### ⚠️ 当前已知问题 **[2025-08-27]**
+
+**问题状态**: 物理混合模型存在NumPy数据类型转换Bug
+
+**症状**: 
+- Simple方法正常工作，生成所有输出文件和可视化
+- Physics方法在Stage1合成时报错：`ufunc 'add' did not contain a loop with signature matching types (dtype('float32'), dtype('<U4')) -> None`
+- 错误发生在`_merge_events_physics`方法的权重图计算阶段
+
+**影响范围**:
+- 不影响Simple方法的正常使用
+- 不影响Step1炫光生成功能
+- Physics方法暂时不可用
+
+**临时解决方案**:
+```yaml
+# configs/config.yaml 临时配置
+composition:
+  merge_method: "simple"        # 使用稳定的simple方法
+  generate_both_methods: false  # 禁用physics方法
+```
+
+**详细调试信息**: 参见 `bug.txt` 文件

@@ -39,16 +39,36 @@ class EventComposer:
             config: 配置字典
         """
         self.config = config
+        self.composition_config = config.get('composition', {})
         
         # 输入路径：炫光事件和光源事件
         self.flare_events_dir = os.path.join('output', 'data', 'flare_events')
         self.light_source_events_dir = os.path.join('output', 'data', 'light_source_events')
         
-        # 输出路径
-        self.background_with_light_dir = os.path.join('output', 'data', 'background_with_light_events')
-        self.full_scene_events_dir = os.path.join('output', 'data', 'full_scene_events')
-        os.makedirs(self.background_with_light_dir, exist_ok=True)
-        os.makedirs(self.full_scene_events_dir, exist_ok=True)
+        # 合成方法设置
+        self.merge_method = self.composition_config.get('merge_method', 'simple')
+        self.generate_both_methods = self.composition_config.get('generate_both_methods', False)
+        
+        # 输出路径字典结构
+        self.output_dirs = {}
+        
+        # 始终为 'simple' 方法创建目录
+        self.output_dirs['simple'] = {
+            'stage1': os.path.join('output', 'data', 'simple_method', 'background_with_light_events'),
+            'stage2': os.path.join('output', 'data', 'simple_method', 'full_scene_events')
+        }
+        
+        # 仅在需要时为 'physics' 方法创建目录
+        if self.merge_method == 'physics' or self.generate_both_methods:
+            self.output_dirs['physics'] = {
+                'stage1': os.path.join('output', 'data', 'physics_method', 'background_with_light_events'),
+                'stage2': os.path.join('output', 'data', 'physics_method', 'full_scene_events')
+            }
+        
+        # 循环创建所有需要的目录
+        for method_name, paths in self.output_dirs.items():
+            os.makedirs(paths['stage1'], exist_ok=True)
+            os.makedirs(paths['stage2'], exist_ok=True)
         
         # Debug模式设置
         self.debug_mode = config.get('debug_mode', False)
@@ -72,13 +92,17 @@ class EventComposer:
         self.bg_duration_ms = 100.0  # 固定100ms
         
         print(f"🚀 EventComposer initialized (Three-Source Composition Mode):")
+        print(f"  Merge method: {self.merge_method}")
+        print(f"  Generate both methods: {self.generate_both_methods}")
         print(f"  Inputs:")
         print(f"    - Flare events: {self.flare_events_dir}")
         print(f"    - Light Source events: {self.light_source_events_dir}")
         print(f"    - Background events: DSEC Dataset (randomly sampled)")
         print(f"  Outputs:")
-        print(f"    - Stage 1 (BG + Light): {self.background_with_light_dir}")
-        print(f"    - Stage 2 (Result + Flare): {self.full_scene_events_dir}")
+        for method_name, paths in self.output_dirs.items():
+            print(f"    - Method '{method_name}':")
+            print(f"      - Stage 1: {paths['stage1']}")
+            print(f"      - Stage 2: {paths['stage2']}")
         print(f"  DSEC dataset size: {len(self.dsec_dataset)} time windows")
         print(f"  Background duration: {self.bg_duration_ms:.0f}ms (fixed)")
         print(f"  Debug mode: {self.debug_mode}")
@@ -195,9 +219,98 @@ class EventComposer:
         
         return dvs_events
     
-    def merge_events(self, background_events: np.ndarray, flare_events: np.ndarray) -> np.ndarray:
+    def _merge_events_physics(self, events1: np.ndarray, events2: np.ndarray, 
+                              weight1: float, weight2: float) -> np.ndarray:
         """
-        合并背景事件和炫光事件
+        Merges two event streams based on a physically-grounded probabilistic model.
+        
+        Args:
+            events1: First event stream (e.g., background).
+            events2: Second event stream (e.g., light source or flare).
+            weight1: The intensity weight to accumulate for each event in events1.
+            weight2: The intensity weight to accumulate for each event in events2.
+            
+        Returns:
+            The merged event array.
+        """
+        # --- 1. 获取通用参数 ---
+        params = self.composition_config.get('physics_params', {})
+        jitter_us = params.get('temporal_jitter_us', 50)
+        epsilon = params.get('epsilon', 1e-9)
+        W, H = self.config['data']['resolution_w'], self.config['data']['resolution_h']
+
+        # --- 2. 动态估计光强图 ---
+        Y_est1 = np.zeros((H, W), dtype=np.float32)
+        x1, y1 = None, None
+        if len(events1) > 0:
+            # 确保事件数据是纯数值型
+            events1_clean = np.array(events1, dtype=np.float64)
+            x1 = np.clip(events1_clean[:, 0].astype(np.int32), 0, W-1)
+            y1 = np.clip(events1_clean[:, 1].astype(np.int32), 0, H-1)
+            # 累积事件权重
+            for i in range(len(x1)):
+                Y_est1[y1[i], x1[i]] += weight1
+
+        Y_est2 = np.zeros((H, W), dtype=np.float32)
+        x2, y2 = None, None
+        if len(events2) > 0:
+            # 确保事件数据是纯数值型
+            events2_clean = np.array(events2, dtype=np.float64)
+            x2 = np.clip(events2_clean[:, 0].astype(np.int32), 0, W-1)
+            y2 = np.clip(events2_clean[:, 1].astype(np.int32), 0, H-1)
+            # 累积事件权重
+            for i in range(len(x2)):
+                Y_est2[y2[i], x2[i]] += weight2
+
+        # --- 3. 计算权重图 A(x,y) for events2 ---
+        # A(x,y) 代表了 events2 在该像素的"主导权"或保留概率
+        A = Y_est2 / (Y_est1 + Y_est2 + epsilon)
+        
+        # 保存权重图用于debug
+        self._last_weight_map = A
+        
+        # --- 4. 概率门控 ---
+        if len(events1) > 0 and x1 is not None and y1 is not None:
+            # 使用已经验证过的坐标
+            prob_keep1 = 1.0 - A[y1, x1] # 保留概率是 1 - A
+            mask1 = np.random.rand(len(events1)) < prob_keep1
+            kept_events1 = events1_clean[mask1]
+        else:
+            kept_events1 = np.empty((0, 4))
+            
+        if len(events2) > 0 and x2 is not None and y2 is not None:
+            # 使用已经验证过的坐标
+            prob_keep2 = A[y2, x2] # 保留概率是 A
+            mask2 = np.random.rand(len(events2)) < prob_keep2
+            kept_events2 = events2_clean[mask2]
+        else:
+            kept_events2 = np.empty((0, 4))
+
+        # --- 5. 合并、时间扰动和排序 ---
+        if len(kept_events1) == 0 and len(kept_events2) == 0:
+            return np.empty((0, 4))
+        elif len(kept_events1) == 0:
+            merged_events = kept_events2
+        elif len(kept_events2) == 0:
+            merged_events = kept_events1
+        else:
+            merged_events = np.vstack([kept_events1, kept_events2])
+        
+        # 时间扰动 (仅在扰动范围大于0时应用)
+        if jitter_us > 0 and len(merged_events) > 0:
+            time_jitter = np.random.uniform(-jitter_us, jitter_us, len(merged_events))
+            merged_events[:, 2] += time_jitter
+            
+        # 按时间排序
+        if len(merged_events) > 0:
+            sort_indices = np.argsort(merged_events[:, 2])
+            merged_events = merged_events[sort_indices]
+            
+        return merged_events
+    
+    def _merge_events_simple(self, background_events: np.ndarray, flare_events: np.ndarray) -> np.ndarray:
+        """
+        简单的事件合并方法 - 原有逻辑
         
         Args:
             background_events: [N, 4] 项目格式 [x, y, t, p]
@@ -222,6 +335,29 @@ class EventComposer:
         merged_events = all_events[sort_indices]
         
         return merged_events
+
+    def merge_events(self, events1: np.ndarray, events2: np.ndarray,
+                     method: str = "simple", 
+                     weight1: float = 1.0, weight2: float = 1.0) -> np.ndarray:
+        """
+        合并两个事件流 - 支持多种合成方法
+        
+        Args:
+            events1: [N, 4] 项目格式 [x, y, t, p] - 第一个事件流 (如背景)
+            events2: [N, 4] 项目格式 [x, y, t, p] - 第二个事件流 (如炫光/光源)  
+            method: 合成方法 "simple" 或 "physics"
+            weight1: 第一个事件流的权重 (physics方法使用)
+            weight2: 第二个事件流的权重 (physics方法使用)
+            
+        Returns:
+            合并的事件数组 [N, 4] 项目格式 [x, y, t, p]
+        """
+        if method == "simple":
+            return self._merge_events_simple(events1, events2)
+        elif method == "physics":
+            return self._merge_events_physics(events1, events2, weight1, weight2)
+        else:
+            raise ValueError(f"Unknown merge method: {method}")
     
     def save_events_dvs_format(self, events: np.ndarray, output_path: str, metadata: Optional[Dict] = None):
         """
@@ -278,7 +414,7 @@ class EventComposer:
     
     def compose_single_sequence(self, flare_file_path: str, light_source_file_path: str, sequence_id: int) -> Tuple[str, str]:
         """
-        合成单个事件序列
+        合成单个事件序列 - 支持双方法并行生成
         
         Args:
             flare_file_path: 炫光事件文件路径
@@ -286,75 +422,112 @@ class EventComposer:
             sequence_id: 序列ID
             
         Returns:
-            (bg_light_file, full_scene_file) 输出文件路径
+            (bg_light_file, full_scene_file) 主方法的输出文件路径
         """
         start_time = time.time()
         
         print(f"  Processing flare file: {os.path.basename(flare_file_path)}")
         print(f"  Processing light source file: {os.path.basename(light_source_file_path)}")
         
-        # 1. 加载炫光事件 (DVS格式)
+        # 1. 加载所有事件数据
         flare_events_dvs = self.load_flare_events(flare_file_path)
         flare_events_project = self.convert_flare_to_project_format(flare_events_dvs)
         
-        # 1.1 加载光源事件 (DVS格式)
-        light_source_events_dvs = self.load_flare_events(light_source_file_path) # 复用加载函数
+        light_source_events_dvs = self.load_flare_events(light_source_file_path)
         light_source_events_project = self.convert_flare_to_project_format(light_source_events_dvs)
         
-        # 2. 生成背景事件 (项目格式)
         background_events_project = self.generate_background_events()
-        
-        # 3. 双阶段合成
-        # --- Stage 1 Composition: Background + Light Source ---
-        # (暂时使用简单的vstack合并)
-        background_with_light_project = self.merge_events(background_events_project, light_source_events_project)
-        
-        # --- Stage 2 Composition: Result of Stage 1 + Flare ---
-        # (暂时使用简单的vstack合并)
-        full_scene_events_project = self.merge_events(background_with_light_project, flare_events_project)
-        
-        # 4. 创建输出文件名
-        base_name = f"composed_sequence_{int(time.time() * 1000)}_{sequence_id:05d}"
-        
-        bg_light_output_path = os.path.join(self.background_with_light_dir, f"{base_name}_bg_light.h5")
-        full_scene_output_path = os.path.join(self.full_scene_events_dir, f"{base_name}_full_scene.h5")
-        
-        # 5. 保存 Stage 1 事件
-        bg_light_metadata = {
-            'event_type': 'background_with_light',
-            'background_events': len(background_events_project),
-            'light_source_events': len(light_source_events_project),
-            'source_light_file': os.path.basename(light_source_file_path)
-        }
-        self.save_events_dvs_format(background_with_light_project, bg_light_output_path, bg_light_metadata)
-        
-        # 6. 保存 Stage 2 事件
-        full_scene_metadata = {
-            'event_type': 'full_scene_merged',
-            'background_with_light_events': len(background_with_light_project),
-            'flare_events': len(flare_events_project),
-            'total_events': len(full_scene_events_project),
-            'source_flare_file': os.path.basename(flare_file_path)
-        }
-        self.save_events_dvs_format(full_scene_events_project, full_scene_output_path, full_scene_metadata)
-        
-        composition_time = time.time() - start_time
         
         print(f"    Background events: {len(background_events_project):,}")
         print(f"    Light source events: {len(light_source_events_project):,}")
         print(f"    Flare events: {len(flare_events_project):,}")
-        print(f"    Stage 1 (BG+Light): {len(background_with_light_project):,}")
-        print(f"    Stage 2 (Full scene): {len(full_scene_events_project):,}")
-        print(f"    Time: {composition_time:.2f}s")
         
-        # 7. Debug可视化 - 为所有序列生成debug
+        # 定义一个内部函数来处理单个方法的完整流程，以实现代码复用
+        def _run_composition_for_method(method_name: str):
+            print(f"    Running composition for method: '{method_name}'")
+            
+            params = self.composition_config.get('physics_params', {})
+            
+            # --- Stage 1: BG + Light Source ---
+            bg_weight = params.get('background_event_weight', 0.2)
+            light_weight = params.get('light_source_event_weight', 1.0)
+            s1_merged = self.merge_events(background_events_project, 
+                                          light_source_events_project, 
+                                          method=method_name,
+                                          weight1=bg_weight, weight2=light_weight)
+            
+            # 保存 Stage 1 权重图 (如果适用)
+            if method_name == 'physics' and self.debug_mode:
+                self._save_weight_map_visualization(sequence_id, "stage1_bg_light")
+
+            # --- Stage 2: (BG+Light) + Flare ---
+            # 在第二阶段，我们将 (BG+Light) 视为一个整体，flare视为另一个
+            # 这里的权重可以简化为1:1，或者根据需要配置
+            flare_weight = params.get('flare_intensity_multiplier', 1.0)
+            s2_merged = self.merge_events(s1_merged, 
+                                          flare_events_project,
+                                          method=method_name,
+                                          weight1=1.0, weight2=flare_weight)
+
+            # 保存 Stage 2 权重图 (如果适用)
+            if method_name == 'physics' and self.debug_mode:
+                self._save_weight_map_visualization(sequence_id, "stage2_full_scene")
+
+            # --- 保存文件 ---
+            base_name = f"composed_{int(time.time() * 1000)}_{sequence_id:05d}"
+            s1_path = os.path.join(self.output_dirs[method_name]['stage1'], f"{base_name}_bg_light.h5")
+            s2_path = os.path.join(self.output_dirs[method_name]['stage2'], f"{base_name}_full_scene.h5")
+            
+            # 保存 Stage 1 事件
+            bg_light_metadata = {
+                'event_type': 'background_with_light',
+                'method': method_name,
+                'background_events': len(background_events_project),
+                'light_source_events': len(light_source_events_project),
+                'stage1_merged_events': len(s1_merged),
+                'source_light_file': os.path.basename(light_source_file_path)
+            }
+            self.save_events_dvs_format(s1_merged, s1_path, bg_light_metadata)
+            
+            # 保存 Stage 2 事件
+            full_scene_metadata = {
+                'event_type': 'full_scene_merged',
+                'method': method_name,
+                'background_with_light_events': len(s1_merged),
+                'flare_events': len(flare_events_project),
+                'total_events': len(s2_merged),
+                'source_flare_file': os.path.basename(flare_file_path)
+            }
+            self.save_events_dvs_format(s2_merged, s2_path, full_scene_metadata)
+            
+            print(f"      Stage 1 ({method_name}): {len(s1_merged):,} events")
+            print(f"      Stage 2 ({method_name}): {len(s2_merged):,} events")
+            
+            return s1_merged, s2_merged, s1_path, s2_path
+
+        # --- 根据配置决定运行哪个(些)流程 ---
+        final_paths = ()
+        if self.generate_both_methods:
+            _, _, s1_p, s2_p = _run_composition_for_method('simple')
+            _, _, s1_p_phys, s2_p_phys = _run_composition_for_method('physics')
+            # 返回主方法的结果路径
+            if self.merge_method == 'physics':
+                final_paths = (s1_p_phys, s2_p_phys)
+            else:
+                final_paths = (s1_p, s2_p)
+        else:
+            _, _, s1_p, s2_p = _run_composition_for_method(self.merge_method)
+            final_paths = (s1_p, s2_p)
+            
+        composition_time = time.time() - start_time
+        print(f"    Total composition time: {composition_time:.2f}s")
+        
+        # Debug可视化
         if self.debug_mode:
             debug_events = {
                 "01_background_raw": background_events_project,
                 "02_light_source_raw": light_source_events_project,
                 "03_flare_raw": flare_events_project,
-                "04_background_with_light": background_with_light_project,
-                "05_full_scene": full_scene_events_project,
             }
             debug_metadata = {
                 'flare_file': os.path.basename(flare_file_path),
@@ -362,7 +535,75 @@ class EventComposer:
             }
             self._save_debug_visualization(debug_events, sequence_id, debug_metadata)
         
-        return bg_light_output_path, full_scene_output_path
+        return final_paths
+    
+    def _save_weight_map_visualization(self, sequence_id: int, stage_name: str):
+        """Saves the last computed weight map A(x,y) as a heatmap."""
+        
+        debug_seq_dir = os.path.join(self.debug_dir, f"composition_{sequence_id:03d}")
+        os.makedirs(debug_seq_dir, exist_ok=True)
+        
+        if hasattr(self, '_last_weight_map') and self._last_weight_map is not None:
+            import cv2
+            import matplotlib.pyplot as plt
+            import matplotlib.cm as cm
+            
+            # 获取权重图
+            A = self._last_weight_map
+            H, W = A.shape
+            
+            # 创建热力图可视化
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+            
+            # 原始权重图
+            im1 = ax1.imshow(A, cmap='viridis', vmin=0, vmax=1)
+            ax1.set_title(f'Weight Map A(x,y) - {stage_name}')
+            ax1.set_xlabel('X (pixels)')
+            ax1.set_ylabel('Y (pixels)')
+            plt.colorbar(im1, ax=ax1, label='Probability')
+            
+            # 权重图的直方图分布
+            ax2.hist(A.flatten(), bins=50, alpha=0.7, color='blue', edgecolor='black')
+            ax2.set_title('Weight Distribution')
+            ax2.set_xlabel('Weight Value')
+            ax2.set_ylabel('Pixel Count')
+            ax2.grid(True, alpha=0.3)
+            
+            # 添加统计信息
+            mean_weight = np.mean(A)
+            std_weight = np.std(A)
+            max_weight = np.max(A)
+            min_weight = np.min(A)
+            ax2.axvline(mean_weight, color='red', linestyle='--', label=f'Mean: {mean_weight:.3f}')
+            ax2.legend()
+            
+            plt.tight_layout()
+            
+            # 保存可视化
+            vis_path = os.path.join(debug_seq_dir, f"weight_map_{stage_name}.png")
+            plt.savefig(vis_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            
+            # 同时保存为OpenCV热力图
+            heatmap_normalized = (A * 255).astype(np.uint8)
+            heatmap_colored = cv2.applyColorMap(heatmap_normalized, cv2.COLORMAP_VIRIDIS)
+            heatmap_path = os.path.join(debug_seq_dir, f"weight_heatmap_{stage_name}.png")
+            cv2.imwrite(heatmap_path, heatmap_colored)
+            
+            # 保存权重图的统计信息
+            stats_path = os.path.join(debug_seq_dir, f"weight_stats_{stage_name}.txt")
+            with open(stats_path, 'w') as f:
+                f.write(f"Weight Map Statistics - {stage_name}\\n")
+                f.write(f"=====================================\\n")
+                f.write(f"Resolution: {W}x{H}\\n")
+                f.write(f"Mean weight: {mean_weight:.6f}\\n")
+                f.write(f"Std weight: {std_weight:.6f}\\n")
+                f.write(f"Min weight: {min_weight:.6f}\\n")
+                f.write(f"Max weight: {max_weight:.6f}\\n")
+                f.write(f"Non-zero pixels: {np.count_nonzero(A)} ({np.count_nonzero(A)/(W*H)*100:.2f}%)\\n")
+            
+            print(f"      Weight map saved: {vis_path}")
+            self._last_weight_map = None  # 清理
     
     def _save_debug_visualization(self, events_dict: Dict[str, np.ndarray], 
                                 sequence_id: int, metadata: Dict):
@@ -539,8 +780,11 @@ class EventComposer:
         print(f"  Processed: {len(bg_light_files_out)}/{len(common_bases)} sequences ({success_rate:.1f}%)")
         print(f"  Total time: {total_time:.1f}s")
         print(f"  Average: {total_time/len(common_bases):.1f}s per sequence")
-        print(f"  Stage 1 outputs (bg+light): {self.background_with_light_dir}")
-        print(f"  Stage 2 outputs (full scene): {self.full_scene_events_dir}")
+        # 输出所有方法的目录信息
+        for method_name, paths in self.output_dirs.items():
+            print(f"  {method_name} method outputs:")
+            print(f"    - Stage 1 (bg+light): {paths['stage1']}")
+            print(f"    - Stage 2 (full scene): {paths['stage2']}")
         
         return bg_light_files_out, full_scene_files_out
 
