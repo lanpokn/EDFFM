@@ -55,14 +55,14 @@ class EventComposer:
         # 始终为 'simple' 方法创建目录
         self.output_dirs['simple'] = {
             'stage1': os.path.join('output', 'data', 'simple_method', 'background_with_light_events'),
-            'stage2': os.path.join('output', 'data', 'simple_method', 'full_scene_events')
+            'stage2': os.path.join('output', 'data', 'simple_method', 'background_with_flare_events')
         }
         
         # 仅在需要时为 'physics' 方法创建目录
         if self.merge_method == 'physics' or self.generate_both_methods:
             self.output_dirs['physics'] = {
                 'stage1': os.path.join('output', 'data', 'physics_method', 'background_with_light_events'),
-                'stage2': os.path.join('output', 'data', 'physics_method', 'full_scene_events')
+                'stage2': os.path.join('output', 'data', 'physics_method', 'background_with_flare_events')
             }
         
         # 循环创建所有需要的目录
@@ -91,7 +91,10 @@ class EventComposer:
         # 背景事件持续时间：固定100ms匹配炫光最大长度
         self.bg_duration_ms = 100.0  # 固定100ms
         
-        print(f"🚀 EventComposer initialized (Three-Source Composition Mode):")
+        print(f"🚀 EventComposer initialized (Dual-Stage Composition Mode):")
+        print(f"  ✅ CORRECTED LOGIC - Three separate compositions:")
+        print(f"    - Stage 1: Background + Light Source → Clean scene")
+        print(f"    - Stage 2: Background + Flare → Flare-contaminated scene")
         print(f"  Merge method: {self.merge_method}")
         print(f"  Generate both methods: {self.generate_both_methods}")
         print(f"  Inputs:")
@@ -101,8 +104,8 @@ class EventComposer:
         print(f"  Outputs:")
         for method_name, paths in self.output_dirs.items():
             print(f"    - Method '{method_name}':")
-            print(f"      - Stage 1: {paths['stage1']}")
-            print(f"      - Stage 2: {paths['stage2']}")
+            print(f"      - Stage 1 (BG+Light): {paths['stage1']}")
+            print(f"      - Stage 2 (BG+Flare): {paths['stage2']}")
         print(f"  DSEC dataset size: {len(self.dsec_dataset)} time windows")
         print(f"  Background duration: {self.bg_duration_ms:.0f}ms (fixed)")
         print(f"  Debug mode: {self.debug_mode}")
@@ -135,7 +138,8 @@ class EventComposer:
         生成背景事件 - 固定100ms长度
         
         Returns:
-            背景事件数组 [N, 4] 格式 [x, y, t, p] (项目格式)
+            背景事件数组 [N, 4] 格式 [x, y, t, p] (项目格式)，
+            确保返回的是一个标准的、非结构化的 float64 ndarray。
         """
         # 固定100ms时长
         duration_ms = self.bg_duration_ms
@@ -143,9 +147,31 @@ class EventComposer:
         
         # 随机选择DSEC样本
         idx = random.randint(0, len(self.dsec_dataset) - 1)
-        background_events = self.dsec_dataset[idx]  # 返回 [x, y, t, p] 格式
         
-        # 裁剪到指定持续时间
+        # ==================== MODIFICATION: START ====================
+        # 原始调用，可能返回结构化数组或其他问题数据
+        raw_events = self.dsec_dataset[idx]  # 返回 [x, y, t, p] 格式
+        
+        # 如果没有事件，直接返回空的标准数组
+        if len(raw_events) == 0:
+            return np.empty((0, 4), dtype=np.float64)
+
+        # **核心修复**：强制重建为标准ndarray，确保类型纯净
+        # 即使原始数据看起来是正常的ndarray，我们也要重新构建以确保没有隐藏的类型问题
+        print(f"DEBUG: Raw DSEC events dtype={raw_events.dtype}, shape={raw_events.shape}")
+        
+        # 逐列提取并重新堆叠，确保每列都是纯数值类型
+        x = np.asarray(raw_events[:, 0], dtype=np.float64)
+        y = np.asarray(raw_events[:, 1], dtype=np.float64)
+        t = np.asarray(raw_events[:, 2], dtype=np.float64)
+        p = np.asarray(raw_events[:, 3], dtype=np.float64)
+        
+        # 重新构建为完全标准的ndarray，消除任何潜在的类型污染
+        background_events = np.column_stack([x, y, t, p]).astype(np.float64)
+        print(f"DEBUG: Cleaned DSEC events dtype={background_events.dtype}, shape={background_events.shape}")
+        # ===================== MODIFICATION: END =====================
+        
+        # 裁剪到指定持续时间 (现在作用于干净的`background_events`数组)
         if len(background_events) > 0:
             t_min = background_events[:, 2].min()
             t_max = background_events[:, 2].max()
@@ -167,7 +193,7 @@ class EventComposer:
                 t_min_bg = background_events[:, 2].min()
                 background_events[:, 2] = background_events[:, 2] - t_min_bg
         
-        return background_events if len(background_events) > 0 else np.empty((0, 4))
+        return background_events if len(background_events) > 0 else np.empty((0, 4), dtype=np.float64)
     
     def convert_flare_to_project_format(self, flare_events: np.ndarray) -> np.ndarray:
         """
@@ -233,6 +259,33 @@ class EventComposer:
         Returns:
             The merged event array.
         """
+        # ==================== ENHANCED DEBUG CODE: START ====================
+        print(f"DEBUG: events1 dtype={events1.dtype}, shape={events1.shape}")
+        print(f"DEBUG: events2 dtype={events2.dtype}, shape={events2.shape}")
+        
+        # 深度检查数组内容
+        if len(events1) > 0:
+            print(f"DEBUG: events1 sample data:")
+            print(f"  First row: {events1[0]} (types: {[type(x) for x in events1[0]]})")
+            print(f"  events1[:, 0] dtype: {events1[:, 0].dtype}")
+            print(f"  events1[:, 1] dtype: {events1[:, 1].dtype}")
+            print(f"  events1[:, 2] dtype: {events1[:, 2].dtype}")
+            print(f"  events1[:, 3] dtype: {events1[:, 3].dtype}")
+        
+        if len(events2) > 0:
+            print(f"DEBUG: events2 sample data:")
+            print(f"  First row: {events2[0]} (types: {[type(x) for x in events2[0]]})")
+            print(f"  events2[:, 0] dtype: {events2[:, 0].dtype}")
+            print(f"  events2[:, 1] dtype: {events2[:, 1].dtype}")
+            print(f"  events2[:, 2] dtype: {events2[:, 2].dtype}")
+            print(f"  events2[:, 3] dtype: {events2[:, 3].dtype}")
+        
+        assert events1.dtype != 'O', f"FATAL: events1 has dtype 'object', which is incompatible!"
+        assert events2.dtype != 'O', f"FATAL: events2 has dtype 'object', which is incompatible!"
+        assert np.issubdtype(events1.dtype, np.number), f"FATAL: events1 dtype is non-numeric: {events1.dtype}"
+        assert np.issubdtype(events2.dtype, np.number), f"FATAL: events2 dtype is non-numeric: {events2.dtype}"
+        # ===================== ENHANCED DEBUG CODE: END =====================
+        
         # --- 1. 获取通用参数 ---
         params = self.composition_config.get('physics_params', {})
         jitter_us = params.get('temporal_jitter_us', 50)
@@ -243,28 +296,50 @@ class EventComposer:
         Y_est1 = np.zeros((H, W), dtype=np.float32)
         x1, y1 = None, None
         if len(events1) > 0:
-            # 确保事件数据是纯数值型
-            events1_clean = np.array(events1, dtype=np.float64)
-            x1 = np.clip(events1_clean[:, 0].astype(np.int32), 0, W-1)
-            y1 = np.clip(events1_clean[:, 1].astype(np.int32), 0, H-1)
-            # 累积事件权重
-            for i in range(len(x1)):
-                Y_est1[y1[i], x1[i]] += weight1
+            # **清理**: 不再需要 np.array(events1, ...)，因为events1已经是干净的了
+            x1 = np.clip(events1[:, 0].astype(np.int32), 0, W-1)
+            y1 = np.clip(events1[:, 1].astype(np.int32), 0, H-1)
+            # **DEBUG**: 详细检查坐标数组类型
+            print(f"DEBUG: x1 dtype={x1.dtype}, shape={x1.shape}, sample={x1[:3]}")
+            print(f"DEBUG: y1 dtype={y1.dtype}, shape={y1.shape}, sample={y1[:3]}")
+            print(f"DEBUG: weight1 type={type(weight1)}, value={weight1}")
+            print(f"DEBUG: Y_est1 dtype={Y_est1.dtype}, shape={Y_est1.shape}")
+            # **加固**: 使用 np.add.at 是最高效、最安全的方式
+            try:
+                np.add.at(Y_est1, (y1, x1), weight1)
+                print(f"DEBUG: np.add.at for Y_est1 succeeded")
+            except Exception as e:
+                print(f"DEBUG: np.add.at failed: {e}")
+                raise
 
         Y_est2 = np.zeros((H, W), dtype=np.float32)
         x2, y2 = None, None
         if len(events2) > 0:
-            # 确保事件数据是纯数值型
-            events2_clean = np.array(events2, dtype=np.float64)
-            x2 = np.clip(events2_clean[:, 0].astype(np.int32), 0, W-1)
-            y2 = np.clip(events2_clean[:, 1].astype(np.int32), 0, H-1)
-            # 累积事件权重
-            for i in range(len(x2)):
-                Y_est2[y2[i], x2[i]] += weight2
+            # **清理**: 不再需要 np.array(events2, ...)
+            x2 = np.clip(events2[:, 0].astype(np.int32), 0, W-1)
+            y2 = np.clip(events2[:, 1].astype(np.int32), 0, H-1)
+            # **DEBUG**: 详细检查坐标数组类型
+            print(f"DEBUG: x2 dtype={x2.dtype}, shape={x2.shape}, sample={x2[:3]}")
+            print(f"DEBUG: y2 dtype={y2.dtype}, shape={y2.shape}, sample={y2[:3]}")
+            print(f"DEBUG: weight2 type={type(weight2)}, value={weight2}")
+            print(f"DEBUG: Y_est2 dtype={Y_est2.dtype}, shape={Y_est2.shape}")
+            # **加固**: 同样使用 np.add.at
+            try:
+                np.add.at(Y_est2, (y2, x2), weight2)
+                print(f"DEBUG: np.add.at for Y_est2 succeeded")
+            except Exception as e:
+                print(f"DEBUG: np.add.at for Y_est2 failed: {e}")
+                raise
 
         # --- 3. 计算权重图 A(x,y) for events2 ---
         # A(x,y) 代表了 events2 在该像素的"主导权"或保留概率
-        A = Y_est2 / (Y_est1 + Y_est2 + epsilon)
+        print(f"DEBUG: Y_est1 dtype={Y_est1.dtype}, Y_est2 dtype={Y_est2.dtype}, epsilon type={type(epsilon)}")
+        try:
+            A = Y_est2 / (Y_est1 + Y_est2 + epsilon)
+            print(f"DEBUG: Weight map A computed successfully, dtype={A.dtype}")
+        except Exception as e:
+            print(f"DEBUG: Weight map computation failed: {e}")
+            raise
         
         # 保存权重图用于debug
         self._last_weight_map = A
@@ -274,21 +349,23 @@ class EventComposer:
             # 使用已经验证过的坐标
             prob_keep1 = 1.0 - A[y1, x1] # 保留概率是 1 - A
             mask1 = np.random.rand(len(events1)) < prob_keep1
-            kept_events1 = events1_clean[mask1]
+            # **清理**: 直接使用 events1
+            kept_events1 = events1[mask1]
         else:
-            kept_events1 = np.empty((0, 4))
+            kept_events1 = np.empty((0, 4), dtype=np.float64) # 确保空数组类型一致
             
         if len(events2) > 0 and x2 is not None and y2 is not None:
             # 使用已经验证过的坐标
             prob_keep2 = A[y2, x2] # 保留概率是 A
             mask2 = np.random.rand(len(events2)) < prob_keep2
-            kept_events2 = events2_clean[mask2]
+            # **清理**: 直接使用 events2
+            kept_events2 = events2[mask2]
         else:
-            kept_events2 = np.empty((0, 4))
+            kept_events2 = np.empty((0, 4), dtype=np.float64) # 确保空数组类型一致
 
         # --- 5. 合并、时间扰动和排序 ---
         if len(kept_events1) == 0 and len(kept_events2) == 0:
-            return np.empty((0, 4))
+            return np.empty((0, 4), dtype=np.float64)
         elif len(kept_events1) == 0:
             merged_events = kept_events2
         elif len(kept_events2) == 0:
@@ -460,14 +537,18 @@ class EventComposer:
             if method_name == 'physics' and self.debug_mode:
                 self._save_weight_map_visualization(sequence_id, "stage1_bg_light")
 
-            # --- Stage 2: (BG+Light) + Flare ---
-            # 在第二阶段，我们将 (BG+Light) 视为一个整体，flare视为另一个
-            # 这里的权重可以简化为1:1，或者根据需要配置
+            # --- Stage 2: BG + Flare (正确的三元合成逻辑) ---
+            # ✅ 修复逻辑错误：Stage 2 应该是 Background + Flare，而不是 (BG+Light) + Flare
+            # 这样才能提供干净的"背景+光源"和"背景+炫光"两种场景供对比
+            print(f"      DEBUG Stage2: background_events_project dtype={background_events_project.dtype}, shape={background_events_project.shape}")
+            print(f"      DEBUG Stage2: flare_events_project dtype={flare_events_project.dtype}, shape={flare_events_project.shape}")
+            
+            bg_weight = params.get('background_event_weight', 0.2)
             flare_weight = params.get('flare_intensity_multiplier', 1.0)
-            s2_merged = self.merge_events(s1_merged, 
+            s2_merged = self.merge_events(background_events_project, 
                                           flare_events_project,
                                           method=method_name,
-                                          weight1=1.0, weight2=flare_weight)
+                                          weight1=bg_weight, weight2=flare_weight)
 
             # 保存 Stage 2 权重图 (如果适用)
             if method_name == 'physics' and self.debug_mode:
@@ -476,7 +557,7 @@ class EventComposer:
             # --- 保存文件 ---
             base_name = f"composed_{int(time.time() * 1000)}_{sequence_id:05d}"
             s1_path = os.path.join(self.output_dirs[method_name]['stage1'], f"{base_name}_bg_light.h5")
-            s2_path = os.path.join(self.output_dirs[method_name]['stage2'], f"{base_name}_full_scene.h5")
+            s2_path = os.path.join(self.output_dirs[method_name]['stage2'], f"{base_name}_bg_flare.h5")
             
             # 保存 Stage 1 事件
             bg_light_metadata = {
@@ -491,9 +572,9 @@ class EventComposer:
             
             # 保存 Stage 2 事件
             full_scene_metadata = {
-                'event_type': 'full_scene_merged',
+                'event_type': 'background_with_flare',
                 'method': method_name,
-                'background_with_light_events': len(s1_merged),
+                'background_events': len(background_events_project),
                 'flare_events': len(flare_events_project),
                 'total_events': len(s2_merged),
                 'source_flare_file': os.path.basename(flare_file_path)

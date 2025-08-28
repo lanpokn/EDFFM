@@ -44,9 +44,9 @@ output/data/light_source_events/light_source_sequence_xxx.h5  # 🆕 纯光源�
 ├── /events/y  [N] uint16   # Y坐标 - 与炫光事件完美对齐
 └── /events/p  [N] int8     # 极性 (1/-1)
 
-# Step 2 输出：三元合成事件
-output/data/background_with_light_events/composed_sequence_xxx_bg_light.h5  # 背景+光源事件
-output/data/full_scene_events/composed_sequence_xxx_full_scene.h5           # 背景+光源+炫光事件
+# Step 2 输出：双阶段独立合成事件
+output/data/background_with_light_events/composed_sequence_xxx_bg_light.h5  # 背景+光源事件 (干净场景)
+output/data/background_with_flare_events/composed_sequence_xxx_bg_flare.h5  # 背景+炫光事件 (污染场景)
 # 同样的 /events/* 格式
 ```
 
@@ -446,18 +446,18 @@ vectorized_processing: true      # 向量化光源检测优化
 - ✅ **完成**: 标准DVS格式 `/events/t,x,y,p` 输出
 - ✅ **完成**: 同名文件配对，如 `flare_sequence_xxx.h5` ↔ `light_source_sequence_xxx.h5`
 
-### ✅ Step 2 重大重构：三元智能事件合成 **[已完成 2025-08-27]**
-**实现**: 从简单二元合成升级为三元智能合成，为炫光去除任务做准备
+### ✅ Step 2 重大重构：双阶段独立事件合成 **[已完成 2025-08-27] [逻辑修复 2025-08-28]**
+**实现**: 从简单二元合成升级为双阶段独立合成，为炫光去除任务提供正确的训练数据
 - **✅ 架构升级**: 
   - **输入**: 背景事件(DSEC) + 炫光事件(Step1) + 光源事件(Step1) **[已实现]**
   - **智能匹配**: 前缀匹配算法，自动配对 `flare_xxx.h5` ↔ `light_source_xxx.h5` **[已实现]**
-  - **双阶段合成**: Stage1(背景+光源) → Stage2(+炫光) **[已实现]**
-- **✅ 合成策略**:
+  - **✅ 逻辑修复**: 双阶段独立合成，而非错误的嵌套合成 **[2025-08-28修复]**
+- **✅ 正确合成策略**:
   - **Stage 1**: `background + light_source → background_with_light_events/` (干净场景)
-  - **Stage 2**: `background_with_light + flare → full_scene_events/` (污染场景) 
-  - **核心价值**: 提供炫光去除训练的标准配对数据 (污染→干净)
+  - **Stage 2**: `background + flare → background_with_flare_events/` (炫光污染场景) 
+  - **核心价值**: 提供炫光去除训练的标准配对数据 (污染场景↔干净场景)
 - **✅ 输出优化**:
-  - 重命名语义化路径: `background_with_light_events/` + `full_scene_events/`
+  - ✅ **逻辑修复**: 重命名语义化路径: `background_with_light_events/` + `background_with_flare_events/`
   - 增强Debug可视化: 支持5种事件类型的独立可视化和元数据
   - 修复文件匹配Bug: 解决前缀不匹配导致的"无匹配文件"错误
 
@@ -480,22 +480,26 @@ vectorized_processing: true      # 向量化光源检测优化
 ### 🎯 架构改动的核心价值
 ```mermaid
 graph TD
-    subgraph "当前架构 (简单相加)"
-        A1[背景事件] --> C1[简单相加]
-        B1[炫光事件] --> C1
-        C1 --> D1[合并事件]
+    subgraph "✅ 正确架构 (双阶段独立合成)"
+        A1[背景事件] --> C1[Stage1合成]
+        B1[光源事件] --> C1
+        A1 --> C2[Stage2合成]
+        E1[炫光事件] --> C2
+        
+        C1 --> F1[背景+光源 - 干净场景]
+        C2 --> F2[背景+炫光 - 污染场景]
+        
+        F1 -.->|训练目标| H1[炫光去除模型]
+        F2 -.->|输入| H1
     end
     
-    subgraph "未来架构 (炫光去除场景)"
-        A2[背景事件] --> C2[智能合成]
-        B2[光源事件] --> C2
-        E2[炫光事件] --> C3[最终合成]
-        C2 --> F2[背景+光源]
-        F2 --> C3
-        C3 --> G2[完整场景]
-        
-        F2 -.->|训练目标| H2[炫光去除模型]
-        G2 -.->|输入| H2
+    subgraph "❌ 错误架构 (嵌套合成) - 已修复"
+        A2[背景事件] --> C3[Stage1]
+        B2[光源事件] --> C3
+        C3 --> G1[背景+光源]
+        G1 --> C4[Stage2错误]
+        E2[炫光事件] --> C4
+        C4 --> G2[三者混合 - 错误!]
     end
 ```
 
