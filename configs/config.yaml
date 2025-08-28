@@ -256,7 +256,7 @@ composition:
     background_event_weight: 0.2            # 背景事件权重 (用于强度估计)
     light_source_event_weight: 1.0          # 光源事件权重 (用于强度估计)  
     flare_intensity_multiplier: 1.0         # 炫光事件权重倍数
-    temporal_jitter_us: 50                  # 时间抖动范围 (微秒)
+    temporal_jitter_us: 10                  # 时间抖动范围 (微秒) - 基于DVS346真实jitter规格
     epsilon: 1e-9                          # 数值稳定性小量
 
 # --- 评估设置 (Evaluation Settings) ---
