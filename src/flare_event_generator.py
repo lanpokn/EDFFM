@@ -144,18 +144,13 @@ class FlareEventGenerator:
             output_path: 输出文件路径
             metadata: 元数据
         """
-        # 🚨 炫光时间随机偏移：0-20ms，确保总长度不超过100ms
+        # 时间归一化：从0开始，无随机偏移
         if len(events) > 0:
-            import random
             events_normalized = events.copy()
             t_min = events_normalized[:, 0].min()
-            events_normalized[:, 0] = events_normalized[:, 0] - t_min  # 先归零
+            events_normalized[:, 0] = events_normalized[:, 0] - t_min  # 从0开始
             
-            # 随机起始时间：0-20ms (0-20000μs)
-            random_start_us = random.uniform(0, 20000)
-            events_normalized[:, 0] = events_normalized[:, 0] + random_start_us
-            
-            print(f"    Flare timing: starts at {random_start_us/1000:.1f}ms (duration: {metadata.get('duration_sec', 0)*1000:.1f}ms)")
+            print(f"    Flare timing: starts at 0ms (duration: {metadata.get('duration_sec', 0)*1000:.1f}ms)")
         else:
             events_normalized = events
         
