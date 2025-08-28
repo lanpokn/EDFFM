@@ -179,7 +179,7 @@ data:
     intensity_scale: [0.8, 1.2]        # 强度缩放范围 (减小随机性，避免破坏频闪规律)
     
     # 🚨 UNIFIED CONTROL: 炫光持续时间的唯一控制参数
-    duration_range: [0.07, 0.10]       # 炫光序列时长范围 70-100ms
+    duration_range: [0.07, 0.095]      # 炫光序列时长范围 70-95ms (预留5ms给Step2随机偏移)
     
     # 真实人造光源强度范围 (避免完全黑屏)
     min_intensity_baseline: [0.0, 0.7]  # 最低强度随机范围 (0-70%)

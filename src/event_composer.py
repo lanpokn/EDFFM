@@ -212,10 +212,15 @@ class EventComposer:
         project_events[:, 2] = flare_events[:, 0]  # t
         project_events[:, 3] = flare_events[:, 3]  # p
         
-        # 时间归一化到从0开始
+        # 时间归一化到从0开始，然后添加随机偏移（模拟光源突然打开）
         if len(project_events) > 0:
+            import random
             t_min = project_events[:, 2].min()
             project_events[:, 2] = project_events[:, 2] - t_min
+            
+            # 添加0-5ms随机时间偏移，模拟光源突然打开的情况
+            random_offset_us = random.uniform(0, 5000)  # 0-5000微秒 = 0-5ms
+            project_events[:, 2] = project_events[:, 2] + random_offset_us
         
         # 确保极性格式一致（DSEC使用1/-1）
         project_events[:, 3] = np.where(project_events[:, 3] > 0, 1, -1)
