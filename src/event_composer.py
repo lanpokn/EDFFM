@@ -484,6 +484,12 @@ class EventComposer:
             # 保存 Stage 1 权重图 (如果适用)
             if method_name == 'physics' and self.debug_mode:
                 self._save_weight_map_visualization(sequence_id, "stage1_bg_light")
+            
+            # 🆕 保存 Stage 1 事件可视化 (如果启用debug)
+            if self.debug_mode:
+                self._save_stage_events_visualization(s1_merged, sequence_id, 
+                                                    f"{method_name}_stage1_bg_light",
+                                                    f"Stage 1 ({method_name}): Background + Light")
 
             # --- Stage 2: BG + Flare (正确的三元合成逻辑) ---
             # ✅ 修复逻辑错误：Stage 2 应该是 Background + Flare，而不是 (BG+Light) + Flare
@@ -499,6 +505,12 @@ class EventComposer:
             # 保存 Stage 2 权重图 (如果适用)
             if method_name == 'physics' and self.debug_mode:
                 self._save_weight_map_visualization(sequence_id, "stage2_full_scene")
+            
+            # 🆕 保存 Stage 2 事件可视化 (如果启用debug)
+            if self.debug_mode:
+                self._save_stage_events_visualization(s2_merged, sequence_id, 
+                                                    f"{method_name}_stage2_bg_flare",
+                                                    f"Stage 2 ({method_name}): Background + Flare")
 
             # --- 保存文件 ---
             base_name = f"composed_{int(time.time() * 1000)}_{sequence_id:05d}"
@@ -631,6 +643,91 @@ class EventComposer:
             
             print(f"      Weight map saved: {vis_path}")
             self._last_weight_map = None  # 清理
+    
+    def _save_stage_events_visualization(self, events: np.ndarray, sequence_id: int, 
+                                       stage_name: str, title: str):
+        """
+        为单个stage的事件结果生成可视化
+        复用Step1中的事件可视化方法
+        
+        Args:
+            events: 事件数组 [N, 4] 项目格式 [x, y, t, p]
+            sequence_id: 序列ID
+            stage_name: stage名称，如 "simple_stage1_bg_light"
+            title: 可视化标题
+        """
+        if len(events) == 0:
+            return
+            
+        debug_seq_dir = os.path.join(self.debug_dir, f"composition_{sequence_id:03d}")
+        os.makedirs(debug_seq_dir, exist_ok=True)
+        
+        # 创建stage专属目录
+        stage_dir = os.path.join(debug_seq_dir, f"{stage_name}_events")
+        os.makedirs(stage_dir, exist_ok=True)
+        
+        # 多分辨率策略 (复用Step1逻辑)
+        resolution_scales = [0.5, 1, 2, 4]
+        resolution = (self.config['data']['resolution_w'], self.config['data']['resolution_h'])
+        
+        for scale in resolution_scales:
+            scale_dir = os.path.join(stage_dir, f"temporal_{scale}x")
+            os.makedirs(scale_dir, exist_ok=True)
+            
+            # 时间参数 (事件格式为 [x, y, t, p])
+            t_min, t_max = events[:, 2].min(), events[:, 2].max()
+            duration_ms = (t_max - t_min) / 1000.0
+            
+            base_window_ms = 10.0
+            window_duration_ms = base_window_ms / scale
+            window_duration_us = window_duration_ms * 1000
+            
+            num_frames = max(10, int(duration_ms / window_duration_ms))
+            frame_step = (t_max - t_min) / num_frames if num_frames > 1 else 0
+            
+            for frame_idx in range(min(num_frames, 30)):
+                frame_start = t_min + frame_idx * frame_step
+                frame_end = frame_start + window_duration_us
+                
+                # 过滤事件
+                mask = (events[:, 2] >= frame_start) & (events[:, 2] < frame_end)
+                frame_events = events[mask]
+                
+                # 创建可视化
+                frame = np.zeros((resolution[1], resolution[0], 3), dtype=np.uint8)
+                
+                if len(frame_events) > 0:
+                    for event in frame_events:
+                        x, y, t, p = event
+                        x, y = int(x), int(y)
+                        
+                        if 0 <= x < resolution[0] and 0 <= y < resolution[1]:
+                            # 统一使用标准红蓝极性配色
+                            color = (0, 0, 255) if p > 0 else (255, 0, 0)  # ON=红, OFF=蓝
+                            frame[y, x] = color
+                
+                # 保存帧
+                import cv2
+                frame_path = os.path.join(scale_dir, f"frame_{frame_idx:03d}.png")
+                cv2.imwrite(frame_path, frame)
+        
+        # 保存元数据
+        metadata_path = os.path.join(stage_dir, "metadata.txt")
+        with open(metadata_path, 'w') as f:
+            t_min, t_max = events[:, 2].min(), events[:, 2].max()
+            duration_ms = (t_max - t_min) / 1000.0
+            pos_events = np.sum(events[:, 3] > 0)
+            neg_events = np.sum(events[:, 3] <= 0)
+            
+            f.write(f"{title} Visualization Metadata\n")
+            f.write(f"=" * 50 + "\n\n")
+            f.write(f"Event count: {len(events):,}\n")
+            f.write(f"Duration: {duration_ms:.1f}ms\n")
+            if duration_ms > 0:
+                f.write(f"Event rate: {len(events) / (duration_ms / 1000):.1f} events/s\n")
+            f.write(f"Polarity: {pos_events} ON ({pos_events/len(events)*100:.1f}%), ")
+            f.write(f"{neg_events} OFF ({neg_events/len(events)*100:.1f}%)\n")
+            f.write(f"Time range: {t_min:.0f} - {t_max:.0f} μs\n")
     
     def _save_debug_visualization(self, events_dict: Dict[str, np.ndarray], 
                                 sequence_id: int, metadata: Dict):

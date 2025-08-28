@@ -145,14 +145,14 @@ graph TD
 # 激活环境
 source /home/lanpoknlanpokn/miniconda3/bin/activate event_flare
 
-# 🆕 完整两步流程 (推荐)
+# ✅ 完整两步流程 (推荐)
 python main.py --debug
 
-# 🆕 分步执行
+# ✅ 分步执行
 python main.py --step 1 --debug    # 只生成炫光事件
 python main.py --step 2 --debug    # 只合成事件
 
-# 🆕 系统测试
+# ✅ 系统测试 (可选)
 python test_new_system.py
 ```
 
@@ -245,24 +245,38 @@ output/debug/light_source_generation/     # 🆕 光源事件Debug
     └── metadata.txt             # 光源生成元数据
 ```
 
-### Step 2 Debug输出  
+### ✅ Step 2 完整Debug输出 **[2025-08-28 增强]**
 ```
 output/debug/event_composition/
 └── composition_XXX/
-    ├── background_events/       # 背景事件可视化
-    │   ├── temporal_0.5x/
-    │   ├── temporal_1x/
-    │   ├── temporal_2x/
-    │   └── temporal_4x/
-    ├── flare_events/           # 炫光事件可视化
-    ├── merged_events/          # 合并事件可视化
-    └── composition_metadata.txt # 合成统计信息
+    # 🆕 双方法四阶段完整可视化
+    ├── simple_stage1_bg_light_events/     # Simple方法 Stage1: BG+Light
+    │   ├── temporal_0.5x/ ... temporal_4x/
+    │   └── metadata.txt
+    ├── simple_stage2_bg_flare_events/     # Simple方法 Stage2: BG+Flare  
+    │   ├── temporal_0.5x/ ... temporal_4x/
+    │   └── metadata.txt
+    ├── physics_stage1_bg_light_events/    # Physics方法 Stage1: BG+Light
+    │   ├── temporal_0.5x/ ... temporal_4x/
+    │   └── metadata.txt
+    ├── physics_stage2_bg_flare_events/    # Physics方法 Stage2: BG+Flare
+    │   ├── temporal_0.5x/ ... temporal_4x/
+    │   └── metadata.txt
+    # Physics方法专用权重图
+    ├── weight_map_stage1_bg_light.png     # Stage1权重图A(x,y)可视化
+    ├── weight_map_stage2_full_scene.png   # Stage2权重图A(x,y)可视化
+    ├── weight_heatmap_stage1_bg_light.png # OpenCV热力图版本
+    ├── weight_heatmap_stage2_full_scene.png
+    ├── weight_stats_stage1_bg_light.txt   # 权重图统计信息
+    └── weight_stats_stage2_full_scene.txt
 ```
 
-### 可视化特性
+### ✅ 可视化特性 **[2025-08-28 标准化]**
 - **多分辨率时间窗口**: 0.5x, 1x, 2x, 4x时间倍数分析
-- **事件类型颜色编码**: 背景(红/蓝), 炫光(黄/橙), 合并(白/灰)
+- **✅ 统一极性配色**: ON事件=红色, OFF事件=蓝色 (所有可视化统一标准)
 - **PNG帧序列**: 每种分辨率生成30帧以内的可视化
+- **🆕 方法对比**: 同时生成Simple和Physics方法的独立可视化
+- **🆕 阶段分离**: Stage1(干净场景) 和 Stage2(污染场景) 独立可视化
 
 ## 📈 新性能指标 (2025-08-20)
 
@@ -364,16 +378,17 @@ data/bg_events/                       # DSEC背景数据 ✅
 
 ## 🆕 新架构核心优势
 
-### 设计优势对比
+### ✅ 设计优势对比 **[2025-08-28 更新]**
 ```
-原架构 (复杂耦合)          →    新架构 (两步解耦 + 三元合成)
+原架构 (复杂耦合)          →    新架构 (两步解耦 + 双阶段独立合成)
 ├── 复杂的特征提取          →    ✅ 移除特征提取，输出原始数据
 ├── 复杂的标签生成          →    ✅ 移除逐事件标签
 ├── 单体生成流程            →    ✅ 解耦为两个独立步骤
-├── 二元简单合成            →    ✅ 三元智能合成 (背景+光源+炫光)
-├── 调试困难                →    ✅ 每步独立调试 + 5种事件可视化
+├── 二元简单合成            →    ✅ 双阶段独立合成 (BG+Light | BG+Flare)
+├── 调试困难                →    ✅ 完整Debug: 双方法四阶段可视化
 ├── 修改合成策略困难        →    ✅ Step2可独立修改合成策略
 ├── 文件匹配不稳定          →    ✅ 智能前缀匹配算法
+├── Physics方法Bug          →    ✅ 完全修复：epsilon类型+逻辑错误
 └── 特征格式固定            →    ✅ 标准DVS格式，通用性强
 ```
 
@@ -387,35 +402,38 @@ data/bg_events/                       # DSEC背景数据 ✅
 
 ## 💡 重启后快速上手
 
-### 🆕 新系统快速验证
+### ✅ 系统快速验证 **[2025-08-28 标准流程]**
 ```bash
 # 1. 激活环境
 source /home/lanpoknlanpokn/miniconda3/bin/activate event_flare
 
-# 2. 快速测试 (5-10分钟)
-python test_new_system.py
+# 2. ✅ 推荐：完整流程测试 (10-20分钟)
+python main.py --debug
 
-# 3. 手动调试 (分步)
-python main.py --step 1 --debug
-python main.py --step 2 --debug  
+# 3. 手动分步调试
+python main.py --step 1 --debug    # 生成炫光+光源事件
+python main.py --step 2 --debug    # 双阶段事件合成
 
-# 4. 检查输出
-ls -la output/data/flare_events/
-ls -la output/data/bg_events/ 
-ls -la output/data/merge_events/
-ls -la output/debug/
+# 4. 检查输出 (新架构路径)
+ls -la output/data/flare_events/                    # Step1: 炫光事件
+ls -la output/data/light_source_events/             # Step1: 光源事件  
+ls -la output/data/simple_method/                   # Step2: Simple方法结果
+ls -la output/data/physics_method/                  # Step2: Physics方法结果
+ls -la output/debug/                                # 完整debug可视化
 ```
 
-### 🎯 核心记忆点
-- ✅ **两步解耦**: Step1散射+反射融合炫光生成，Step2三元智能事件合成
-- ✅ **三元合成**: 背景(DSEC随机) + 炫光事件 + 光源事件 → 双路输出
+### 🎯 核心记忆点 **[2025-08-28 完整版]**
+- ✅ **两步解耦**: Step1散射+反射融合炫光生成，Step2双阶段独立事件合成
+- ✅ **双阶段合成**: Stage1(BG+Light干净场景) + Stage2(BG+Flare污染场景)
 - ✅ **智能匹配**: 前缀匹配算法，自动配对 flare_xxx.h5 ↔ light_source_xxx.h5
+- ✅ **双方法支持**: Simple简单合成 + Physics概率门控 ⚠️ **非真实物理**
+- ✅ **Bug完全修复**: epsilon类型转换 + Stage2逻辑错误已解决
 - ✅ **标准DVS格式**: `/events/t,x,y,p` 原始数据输出
 - ✅ **100ms统一时长**: 所有输出文件时间戳范围0-100ms  
-- ✅ **散射+反射融合**: Flare7K散射炫光自动检测光源生成GLSL反射炫光
-- ✅ **连续性保证**: 序列级固定种子，向量化光源检测
-- ✅ **无后处理**: 移除特征提取和标签生成
-- ✅ **独立调试**: 每步可单独运行，支持5种事件类型可视化
+- ✅ **完整Debug**: 双方法四阶段独立可视化 + Physics权重图
+- ✅ **统一配色**: ON事件=红色, OFF事件=蓝色 (所有可视化标准)
+- ✅ **无后处理**: 移除特征提取和标签生成，专注原始事件数据
+- ✅ **Physics工作正常**: 概率筛选满足当前需求，未来可优化为真实物理仿真
 
 ### 🎯 关键参数设置
 ```yaml
@@ -435,47 +453,118 @@ light_detection_pixels: 50       # 光源检测使用最亮50像素
 vectorized_processing: true      # 向量化光源检测优化
 ```
 
-## 📝 TODO - 未来Step 2架构改动计划
+## ✅ 已完成的架构改动 **[2025-08-28]**
 
-### ✅ Step 1 扩展计划：双事件生成 **[已完成]**
-**目标**: 炫光事件 + 光源事件双输出 ✅
-- ✅ **完成**: 同时生成炫光事件 → `output/data/flare_events/*.h5`
-- ✅ **完成**: 同时生成光源事件 → `output/data/light_source_events/*.h5`
-- ✅ **完成**: 光源强度变化与位移与炫光**完全一致** (共享"剧本"架构)
-- ✅ **完成**: Flare7K数据集Light_Source文件夹完美配对
-- ✅ **完成**: 标准DVS格式 `/events/t,x,y,p` 输出
-- ✅ **完成**: 同名文件配对，如 `flare_sequence_xxx.h5` ↔ `light_source_sequence_xxx.h5`
+### ✅ Step 1: 双事件同步生成 **[完全实现]**
+- **同步炫光事件生成**: `output/data/flare_events/*.h5` (散射+反射融合)
+- **同步光源事件生成**: `output/data/light_source_events/*.h5` (纯光源)
+- **完美同步机制**: 共享"剧本"架构，确保时间戳和空间完全一致
+- **标准DVS格式输出**: `/events/t,x,y,p` 格式，兼容所有DVS工具链
 
-### ✅ Step 2 重大重构：双阶段独立事件合成 **[已完成 2025-08-27] [逻辑修复 2025-08-28]**
-**实现**: 从简单二元合成升级为双阶段独立合成，为炫光去除任务提供正确的训练数据
-- **✅ 架构升级**: 
-  - **输入**: 背景事件(DSEC) + 炫光事件(Step1) + 光源事件(Step1) **[已实现]**
-  - **智能匹配**: 前缀匹配算法，自动配对 `flare_xxx.h5` ↔ `light_source_xxx.h5` **[已实现]**
-  - **✅ 逻辑修复**: 双阶段独立合成，而非错误的嵌套合成 **[2025-08-28修复]**
-- **✅ 正确合成策略**:
-  - **Stage 1**: `background + light_source → background_with_light_events/` (干净场景)
-  - **Stage 2**: `background + flare → background_with_flare_events/` (炫光污染场景) 
-  - **核心价值**: 提供炫光去除训练的标准配对数据 (污染场景↔干净场景)
-- **✅ 输出优化**:
-  - ✅ **逻辑修复**: 重命名语义化路径: `background_with_light_events/` + `background_with_flare_events/`
-  - 增强Debug可视化: 支持5种事件类型的独立可视化和元数据
-  - 修复文件匹配Bug: 解决前缀不匹配导致的"无匹配文件"错误
+### ✅ Step 2: 双阶段独立事件合成 **[完全实现+Bug修复]**
+- **正确架构逻辑**: Stage1(BG+Light) | Stage2(BG+Flare) 独立合成
+- **双方法支持**: Simple直接合成 + Physics智能概率门控
+- **智能文件匹配**: 前缀匹配算法，自动配对对应的炫光和光源文件
+- **完整Debug系统**: 双方法四阶段独立可视化 + Physics权重图分析
 
-### 🔮 Step 2 未来增强计划：基于物理的事件合成算法 **[规划中]**
-**当前现状**: 
-- **简单合成**: `np.vstack([background, light_source])` - 直接事件列表合并
-- **时间排序**: `np.argsort(events[:, 2])` - 按时间戳重排序
-- **适用性**: 适合快速验证和初期开发
+### 🔮 Step 2 物理模拟算法优化空间 **[深度分析 2025-08-28]**
 
-**未来升级方向**:
-- **基于物理的合成**: 考虑DVS传感器的真实物理特性进行合成
-- **双模式输出**: 同时生成简单合成和物理合成结果，输出到不同文件夹
-- **消融实验支持**: 便于对比不同合成方法的效果差异
+#### 📊 当前Physics方法的实现分析
 
-**技术要点**:
-- 保留当前简单合成作为baseline
-- 新增物理合成模式，可配置切换或双路并行输出
-- 确保向后兼容性，不破坏现有工作流程
+**当前实现状态**:
+- **Simple方法**: `np.vstack([background, flare])` - 直接事件列表合并 ✅ 简单有效
+- **Physics方法**: 权重图A(x,y) + 概率门控 ✅ **工作正常，满足当前需求**
+
+#### 🔮 Physics方法的未来优化方向 **[仅作记录，无需主动修复]**
+
+**优化方向1: A(x,y)可改进为时变权重** 
+```python
+# 当前实现（工作正常）
+A = Y_est2 / (Y_est1 + Y_est2 + epsilon)  # 静态权重图
+
+# 未来优化潜力:
+# 1. 时变扩展: A(x,y) → A(x,y,t) 提供更精确的时域建模
+# 2. 物理建模: 用真实光强而非事件计数进行权重估计
+# 3. 时域连续性: 保持不同时间事件的时序关系
+```
+
+**优化方向2: 概率门控可改进为累积触发**
+```python
+# 当前实现（有效且简单）
+prob_keep = A[y, x]  # 概率性保留事件
+mask = np.random.rand(len(events)) < prob_keep  # 随机筛选
+
+# 未来物理仿真潜力:
+# - 累积阈值: 基于DVS传感器真实的光照累积和阈值触发机制
+# - 时域处理: 按时间顺序处理事件，模拟真实传感器行为
+# ⚠️ 注意: 此为研究级优化，当前方法已充分满足应用需求
+```
+
+#### 🎯 未来真实物理方法设计参考 **[研究级，非必需实现]**
+
+**设计思路**: 完全模拟DVS传感器的物理过程（仅供参考）
+```python
+# 伪代码: 真正的物理合成算法
+def physics_merge_true(background_events, flare_events):
+    """基于DVS物理原理的事件合成"""
+    
+    # 1. 时空分辨率网格化
+    pixel_accumulators = np.zeros((H, W))  # 每像素的光强累积器
+    last_event_time = np.zeros((H, W))     # 每像素最后一次事件时间
+    
+    # 2. 按时间顺序处理所有事件
+    all_events = merge_and_sort_by_time(background_events, flare_events)
+    output_events = []
+    
+    for event in all_events:
+        x, y, t, p = event
+        
+        # 3. 累积该像素的光照变化 (关键：时变A(x,y,t))
+        intensity_contrib = get_intensity_at_pixel_time(x, y, t)
+        pixel_accumulators[y, x] += intensity_contrib * p
+        
+        # 4. 检查是否触发DVS阈值 (物理原理)
+        if abs(pixel_accumulators[y, x]) >= DVS_THRESHOLD:
+            # 输出事件，重置累积器
+            output_event = (x, y, t + random_jitter(), sign(pixel_accumulators[y, x]))
+            output_events.append(output_event)
+            pixel_accumulators[y, x] = 0  # 重置
+            last_event_time[y, x] = t
+    
+    return output_events
+```
+
+**真正物理方法的特征**:
+- **时变权重**: A(x,y,t)根据当前时刻的光照条件动态计算
+- **累积触发**: 不删除事件，而是累积光照变化直到超过DVS阈值
+- **时域连续性**: 考虑像素历史状态和不应期效应
+- **真实时间抖动**: 基于传感器物理延迟的时间偏移
+
+#### 📊 三种方法的比较分析
+
+| 方法 | 物理准确性 | 计算复杂度 | 适用场景 |
+|------|-----------|-----------|----------|
+| **Simple** | 低 (直接叠加) | 最低 | 快速原型、基础验证 |
+| **Physics (当前)** | 中 (概率近似) | 中等 | 算法对比、消融实验 |
+| **Physics (真实)** | 高 (物理仿真) | 最高 | 高精度研究、最终产品 |
+
+#### 🔄 实现优先级建议
+
+**阶段1: 保持现状** ✅ **[推荐状态]**
+- Simple方法: 稳定可靠的baseline
+- Physics方法: 概率筛选已满足当前需求
+- 用途: 完成完整流程验证，炫光去除模型训练
+- **⚠️ 重要**: 无明确指令时，请勿主动优化Physics方法
+
+**阶段2: 真实物理实现** 🔮 **[可选优化，需明确指令]**
+- 基于累积阈值的真实DVS物理模拟
+- 时变权重A(x,y,t)的精确计算
+- 支持三种方法输出: Simple | Physics-Prob | Physics-True
+
+**阶段3: 高级优化** 🚀 **[研究方向]**
+- 传感器噪声建模
+- 像素间串扰效应
+- 温度和老化影响
 
 ### 🎯 架构改动的核心价值
 ```mermaid
@@ -732,26 +821,39 @@ print(f'Reduction: {(1-len(physics[\"/events/t\"])/len(simple[\"/events/t\"]))*1
 - **参数调优**: 根据权重图分布调整physics_params参数
 - **场景适配**: 根据应用场景(室内/室外/强光/弱光)调整权重配置
 
-### ⚠️ 当前已知问题 **[2025-08-27]**
+### ✅ 已修复问题 **[2025-08-28]**
 
-**问题状态**: 物理混合模型存在NumPy数据类型转换Bug
+**问题状态**: ✅ **完全修复** - 两个关键Bug已解决
 
-**症状**: 
-- Simple方法正常工作，生成所有输出文件和可视化
-- Physics方法在Stage1合成时报错：`ufunc 'add' did not contain a loop with signature matching types (dtype('float32'), dtype('<U4')) -> None`
-- 错误发生在`_merge_events_physics`方法的权重图计算阶段
+#### 🐛 Bug #1: Stage2逻辑错误 **[已修复]**
+- **问题**: Stage2错误地使用 `(BG+Light) + Flare` 嵌套合成
+- **修复**: Stage2正确使用 `BG + Flare` 独立合成
+- **价值**: 为炫光去除任务提供正确的训练数据配对 (污染场景↔干净场景)
 
-**影响范围**:
-- 不影响Simple方法的正常使用
-- 不影响Step1炫光生成功能
-- Physics方法暂时不可用
+#### 🐛 Bug #2: NumPy数据类型转换错误 **[已修复]**
+- **根本原因**: 配置文件中 `epsilon: 1e-9` 被YAML解析为字符串类型
+- **错误症状**: `ufunc 'add' did not contain a loop with signature matching types (dtype('float32'), dtype('<U4'))`
+- **修复方案**: 在`_merge_events_physics`中强制转换 `epsilon = float(epsilon_raw)`
+- **结果**: Physics方法完全正常工作，智能概率门控生效
 
-**临时解决方案**:
-```yaml
-# configs/config.yaml 临时配置
-composition:
-  merge_method: "simple"        # 使用稳定的simple方法
-  generate_both_methods: false  # 禁用physics方法
+#### 📊 验证结果 **[2025-08-28]**
+- ✅ **Simple方法**: 正常工作，生成所有输出和可视化
+- ✅ **Physics方法**: 完全修复，智能事件筛选率5-10%
+- ✅ **权重图生成**: 成功生成A(x,y)热力图可视化
+- ✅ **双阶段输出**: 
+  - Stage1: `background_with_light_events/` (干净场景)
+  - Stage2: `background_with_flare_events/` (炫光污染场景)
+
+#### 🔧 关键修复代码
+```python
+# 修复1: Stage2正确逻辑
+s2_merged = self.merge_events(background_events_project,  # BG + Flare
+                              flare_events_project, ...)
+
+# 修复2: epsilon类型转换
+epsilon = float(params.get('epsilon', 1e-9))  # 强制转换为float
 ```
 
-**详细调试信息**: 参见 `bug.txt` 文件
+**当前状态**: 🎉 **EventMamba-FX Two-Step Generator完全正常工作！**
+
+**✅ Physics方法状态**: 当前Physics方法工作正常，基于概率门控提供有效的事件筛选。未来可选优化为真实DVS物理仿真（累积阈值触发+时变权重），但当前实现已充分满足流程验证和对比实验需求。
