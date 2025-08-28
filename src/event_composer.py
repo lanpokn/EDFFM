@@ -158,7 +158,6 @@ class EventComposer:
 
         # **核心修复**：强制重建为标准ndarray，确保类型纯净
         # 即使原始数据看起来是正常的ndarray，我们也要重新构建以确保没有隐藏的类型问题
-        print(f"DEBUG: Raw DSEC events dtype={raw_events.dtype}, shape={raw_events.shape}")
         
         # 逐列提取并重新堆叠，确保每列都是纯数值类型
         x = np.asarray(raw_events[:, 0], dtype=np.float64)
@@ -168,7 +167,6 @@ class EventComposer:
         
         # 重新构建为完全标准的ndarray，消除任何潜在的类型污染
         background_events = np.column_stack([x, y, t, p]).astype(np.float64)
-        print(f"DEBUG: Cleaned DSEC events dtype={background_events.dtype}, shape={background_events.shape}")
         # ===================== MODIFICATION: END =====================
         
         # 裁剪到指定持续时间 (现在作用于干净的`background_events`数组)
@@ -259,37 +257,13 @@ class EventComposer:
         Returns:
             The merged event array.
         """
-        # ==================== ENHANCED DEBUG CODE: START ====================
-        print(f"DEBUG: events1 dtype={events1.dtype}, shape={events1.shape}")
-        print(f"DEBUG: events2 dtype={events2.dtype}, shape={events2.shape}")
-        
-        # 深度检查数组内容
-        if len(events1) > 0:
-            print(f"DEBUG: events1 sample data:")
-            print(f"  First row: {events1[0]} (types: {[type(x) for x in events1[0]]})")
-            print(f"  events1[:, 0] dtype: {events1[:, 0].dtype}")
-            print(f"  events1[:, 1] dtype: {events1[:, 1].dtype}")
-            print(f"  events1[:, 2] dtype: {events1[:, 2].dtype}")
-            print(f"  events1[:, 3] dtype: {events1[:, 3].dtype}")
-        
-        if len(events2) > 0:
-            print(f"DEBUG: events2 sample data:")
-            print(f"  First row: {events2[0]} (types: {[type(x) for x in events2[0]]})")
-            print(f"  events2[:, 0] dtype: {events2[:, 0].dtype}")
-            print(f"  events2[:, 1] dtype: {events2[:, 1].dtype}")
-            print(f"  events2[:, 2] dtype: {events2[:, 2].dtype}")
-            print(f"  events2[:, 3] dtype: {events2[:, 3].dtype}")
-        
-        assert events1.dtype != 'O', f"FATAL: events1 has dtype 'object', which is incompatible!"
-        assert events2.dtype != 'O', f"FATAL: events2 has dtype 'object', which is incompatible!"
-        assert np.issubdtype(events1.dtype, np.number), f"FATAL: events1 dtype is non-numeric: {events1.dtype}"
-        assert np.issubdtype(events2.dtype, np.number), f"FATAL: events2 dtype is non-numeric: {events2.dtype}"
-        # ===================== ENHANCED DEBUG CODE: END =====================
         
         # --- 1. 获取通用参数 ---
         params = self.composition_config.get('physics_params', {})
         jitter_us = params.get('temporal_jitter_us', 50)
-        epsilon = params.get('epsilon', 1e-9)
+        epsilon_raw = params.get('epsilon', 1e-9)
+        # **修复**: 强制转换epsilon为浮点数，防止YAML解析为字符串
+        epsilon = float(epsilon_raw)
         W, H = self.config['data']['resolution_w'], self.config['data']['resolution_h']
 
         # --- 2. 动态估计光强图 ---
@@ -299,18 +273,8 @@ class EventComposer:
             # **清理**: 不再需要 np.array(events1, ...)，因为events1已经是干净的了
             x1 = np.clip(events1[:, 0].astype(np.int32), 0, W-1)
             y1 = np.clip(events1[:, 1].astype(np.int32), 0, H-1)
-            # **DEBUG**: 详细检查坐标数组类型
-            print(f"DEBUG: x1 dtype={x1.dtype}, shape={x1.shape}, sample={x1[:3]}")
-            print(f"DEBUG: y1 dtype={y1.dtype}, shape={y1.shape}, sample={y1[:3]}")
-            print(f"DEBUG: weight1 type={type(weight1)}, value={weight1}")
-            print(f"DEBUG: Y_est1 dtype={Y_est1.dtype}, shape={Y_est1.shape}")
             # **加固**: 使用 np.add.at 是最高效、最安全的方式
-            try:
-                np.add.at(Y_est1, (y1, x1), weight1)
-                print(f"DEBUG: np.add.at for Y_est1 succeeded")
-            except Exception as e:
-                print(f"DEBUG: np.add.at failed: {e}")
-                raise
+            np.add.at(Y_est1, (y1, x1), weight1)
 
         Y_est2 = np.zeros((H, W), dtype=np.float32)
         x2, y2 = None, None
@@ -318,28 +282,12 @@ class EventComposer:
             # **清理**: 不再需要 np.array(events2, ...)
             x2 = np.clip(events2[:, 0].astype(np.int32), 0, W-1)
             y2 = np.clip(events2[:, 1].astype(np.int32), 0, H-1)
-            # **DEBUG**: 详细检查坐标数组类型
-            print(f"DEBUG: x2 dtype={x2.dtype}, shape={x2.shape}, sample={x2[:3]}")
-            print(f"DEBUG: y2 dtype={y2.dtype}, shape={y2.shape}, sample={y2[:3]}")
-            print(f"DEBUG: weight2 type={type(weight2)}, value={weight2}")
-            print(f"DEBUG: Y_est2 dtype={Y_est2.dtype}, shape={Y_est2.shape}")
             # **加固**: 同样使用 np.add.at
-            try:
-                np.add.at(Y_est2, (y2, x2), weight2)
-                print(f"DEBUG: np.add.at for Y_est2 succeeded")
-            except Exception as e:
-                print(f"DEBUG: np.add.at for Y_est2 failed: {e}")
-                raise
+            np.add.at(Y_est2, (y2, x2), weight2)
 
         # --- 3. 计算权重图 A(x,y) for events2 ---
         # A(x,y) 代表了 events2 在该像素的"主导权"或保留概率
-        print(f"DEBUG: Y_est1 dtype={Y_est1.dtype}, Y_est2 dtype={Y_est2.dtype}, epsilon type={type(epsilon)}")
-        try:
-            A = Y_est2 / (Y_est1 + Y_est2 + epsilon)
-            print(f"DEBUG: Weight map A computed successfully, dtype={A.dtype}")
-        except Exception as e:
-            print(f"DEBUG: Weight map computation failed: {e}")
-            raise
+        A = Y_est2 / (Y_est1 + Y_est2 + epsilon)
         
         # 保存权重图用于debug
         self._last_weight_map = A
@@ -540,8 +488,6 @@ class EventComposer:
             # --- Stage 2: BG + Flare (正确的三元合成逻辑) ---
             # ✅ 修复逻辑错误：Stage 2 应该是 Background + Flare，而不是 (BG+Light) + Flare
             # 这样才能提供干净的"背景+光源"和"背景+炫光"两种场景供对比
-            print(f"      DEBUG Stage2: background_events_project dtype={background_events_project.dtype}, shape={background_events_project.shape}")
-            print(f"      DEBUG Stage2: flare_events_project dtype={flare_events_project.dtype}, shape={flare_events_project.shape}")
             
             bg_weight = params.get('background_event_weight', 0.2)
             flare_weight = params.get('flare_intensity_multiplier', 1.0)
