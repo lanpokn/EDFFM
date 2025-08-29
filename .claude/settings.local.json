@@ -54,7 +54,8 @@
       "Bash(sudo apt install:*)",
       "Bash(export LIBGL_ALWAYS_SOFTWARE=1)",
       "Bash(export DISPLAY=:0.0)",
-      "Bash(export PYOPENGL_PLATFORM=osmesa)"
+      "Bash(export PYOPENGL_PLATFORM=osmesa)",
+      "Bash(xxd:*)"
     ],
     "deny": []
   }

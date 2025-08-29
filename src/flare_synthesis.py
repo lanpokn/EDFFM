@@ -339,14 +339,24 @@ class FlareFlickeringSynthesizer:
         # 为了让 torchvision.transforms 可复现，我们需要固定种子
         transform_seed = random.randint(0, 2**32 - 1)
         
-        # 5. 生成GLSL反射炫光参数 (即使光源视频不用，也要预先生成以保持随机状态一致)
+        # 5. 🆕 决定是否使用GLSL反射炫光 (10%的时间只使用散射炫光增加多样性)
+        use_reflection = random.random() > 0.1  # 90%概率使用反射，10%概率只用散射
+        
+        # 生成GLSL反射炫光参数 (即使光源视频不用，也要预先生成以保持随机状态一致)
         reflection_params = {}
-        if self.glsl_generator is not None and len(self.noise_textures) > 0:
+        if self.glsl_generator is not None and len(self.noise_textures) > 0 and use_reflection:
             reflection_params = {
                 'noise_texture': random.choice(self.noise_textures),
                 'flare_size': random.uniform(0.15, 0.25),
                 'time_seed': random.random() * 50
             }
+        
+        # 如果不使用反射，仍然消耗相同的随机数以保持随机状态一致性
+        if not use_reflection and self.glsl_generator is not None and len(self.noise_textures) > 0:
+            # 消耗相同数量的随机数但不保存结果
+            _ = random.choice(self.noise_textures)
+            _ = random.uniform(0.15, 0.25) 
+            _ = random.random() * 50
 
         # 6. 🆕 生成DVS仿真参数 (确保炫光和光源使用相同的k1)
         # 复制DVS仿真器中的k1随机化逻辑
@@ -367,12 +377,14 @@ class FlareFlickeringSynthesizer:
             "movement_path": movement_path,
             "transform_seed": transform_seed,
             "reflection_params": reflection_params,
+            "use_reflection": use_reflection,  # 🆕 反射使用标志
             "global_scale_factor": random.uniform(*self.synthesis_config.get('intensity_scale', [1.0, 1.0])),
             "num_frames": num_frames,
             "dvs_k1": dvs_k1  # 🆕 DVS k1参数
         }
         
-        print(f"  📋 Generated sequence script: {duration*1000:.1f}ms, {frequency:.1f}Hz, {fps}fps, {len(flicker_curve)} frames, k1={dvs_k1:.3f}")
+        reflection_mode = "scatter+reflection" if use_reflection else "scatter-only"
+        print(f"  📋 Generated sequence script: {duration*1000:.1f}ms, {frequency:.1f}Hz, {fps}fps, {len(flicker_curve)} frames, k1={dvs_k1:.3f}, mode={reflection_mode}")
         
         return script
     
@@ -770,8 +782,9 @@ class FlareFlickeringSynthesizer:
         # Convert RGB to light intensity
         base_intensity = self.rgb_to_light_intensity(positioned_rgb)
         
-        # 从剧本中获取反射炫光参数
-        if apply_reflection and self.glsl_generator and reflection_params:
+        # 从剧本中获取反射炫光参数（检查use_reflection标志）
+        use_reflection = sequence_script.get('use_reflection', True)  # 默认使用反射以兼容旧剧本
+        if apply_reflection and use_reflection and self.glsl_generator and reflection_params:
             sequence_noise_texture = reflection_params['noise_texture']
             sequence_flare_size = reflection_params['flare_size']
             sequence_time_seed = reflection_params['time_seed']
@@ -831,8 +844,8 @@ class FlareFlickeringSynthesizer:
             final_frame_pil = self.final_crop_transform(moved_frame_pil)
             final_frame = np.array(final_frame_pil)
             
-            # 4. 🚨 根据apply_reflection标志控制反射炫光叠加
-            if apply_reflection and sequence_noise_texture is not None:
+            # 4. 🚨 根据apply_reflection和use_reflection标志控制反射炫光叠加
+            if apply_reflection and use_reflection and sequence_noise_texture is not None:
                 try:
                     # 🚀 改进光源检测：更精确的位置和颜色
                     light_pos, light_color = self._detect_light_source_improved(final_frame)
@@ -855,7 +868,7 @@ class FlareFlickeringSynthesizer:
                             final_frame = np.clip(combined_frame, 0, 255).astype(np.uint8)
                             
                             # Debug信息（只打印前5帧）
-                            if frame_idx < 5 and apply_reflection:
+                            if frame_idx < 5 and apply_reflection and use_reflection:
                                 print(f"    Frame {frame_idx}: Added reflection flare at {light_pos} (top50), "
                                       f"color={[f'{c:.2f}' for c in light_color]} (avg), "
                                       f"intensity={intensity_multiplier:.3f}, seed={sequence_time_seed:.1f}")
@@ -877,7 +890,8 @@ class FlareFlickeringSynthesizer:
             'movement_distance_pixels': np.linalg.norm(movement_path[-1] - movement_path[0]),
             'movement_speed_pixels_per_sec': np.linalg.norm(movement_path[-1] - movement_path[0]) / duration,
             'positioned_image_size': (positioned_h, positioned_w),
-            'reflection_flare_applied': apply_reflection and self.glsl_generator is not None,
+            'reflection_flare_applied': apply_reflection and use_reflection and self.glsl_generator is not None,
+            'use_reflection_flag': use_reflection,  # 🆕 添加反射使用标志到元数据
             'noise_textures_count': len(self.noise_textures)
         }
         
