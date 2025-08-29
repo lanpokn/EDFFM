@@ -67,11 +67,37 @@ class FlareEventGenerator:
         flare_config = config['data']['flare_synthesis']
         self.duration_range = flare_config['duration_range']
         
+        # 🆕 获取连续序号起始点
+        self.sequence_start_id = self._get_next_sequence_id()
+        
         print(f"🚀 FlareEventGenerator initialized (Synced Generation):")
         print(f"  Flare events: {self.flare_output_dir}")
         print(f"  Light source events: {self.light_source_output_dir}")  # 🆕
         print(f"  Duration range: {self.duration_range[0]*1000:.0f}-{self.duration_range[1]*1000:.0f}ms")
+        print(f"  Sequence start ID: {self.sequence_start_id} (continuing from existing files)")  # 🆕
         print(f"  Debug mode: {self.debug_mode}")
+    
+    def _get_next_sequence_id(self) -> int:
+        """
+        获取下一个序列ID，基于现有文件数量
+        
+        Returns:
+            下一个可用的序列ID
+        """
+        import glob
+        
+        # 统计所有现有的序列文件
+        flare_files = glob.glob(os.path.join(self.flare_output_dir, "*.h5"))
+        light_source_files = glob.glob(os.path.join(self.light_source_output_dir, "*.h5"))
+        
+        # 取两个目录中文件数量的最大值作为起始点
+        max_existing = max(len(flare_files), len(light_source_files))
+        
+        if max_existing > 0:
+            print(f"📁 Found existing files: {len(flare_files)} flare + {len(light_source_files)} light source")
+            print(f"🔢 Starting sequence ID from: {max_existing}")
+        
+        return max_existing
     
     def generate_single_flare_sequence(self, sequence_id: int) -> Tuple[Optional[str], Optional[str]]:
         """
@@ -98,9 +124,9 @@ class FlareEventGenerator:
                 print(f"⚠️  Warning: No events generated for sequence {sequence_id}")
                 return None, None
 
-            # 2. 创建共享的文件名基础
-            timestamp = int(time.time() * 1000)
-            base_filename = f"sequence_{timestamp}_{sequence_id:05d}.h5"
+            # 2. 创建共享的文件名基础 (🔄 修改: 使用连续序号)
+            actual_sequence_id = self.sequence_start_id + sequence_id
+            base_filename = f"sequence_{actual_sequence_id:05d}.h5"
             
             # 3. 保存炫光事件
             flare_filename = f"flare_{base_filename}"
@@ -348,13 +374,15 @@ class FlareEventGenerator:
             Tuple of (flare_file_paths, light_source_file_paths)
         """
         print(f"\n🚀 Generating {num_sequences} synced flare/light-source event sequences...")
+        print(f"📝 Sequence numbering: {self.sequence_start_id} to {self.sequence_start_id + num_sequences - 1}")
         
         flare_files = []
         light_source_files = []
         start_time = time.time()
         
         for i in range(num_sequences):
-            print(f"\n--- Generating synced sequence {i+1}/{num_sequences} ---")
+            actual_id = self.sequence_start_id + i
+            print(f"\n--- Generating synced sequence {i+1}/{num_sequences} (ID: {actual_id}) ---")
             
             flare_path, light_source_path = self.generate_single_flare_sequence(i)
             if flare_path and light_source_path:

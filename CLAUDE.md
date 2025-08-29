@@ -861,3 +861,10 @@ epsilon = float(params.get('epsilon', 1e-9))  # 强制转换为float
 **当前状态**: 🎉 **EventMamba-FX Two-Step Generator完全正常工作！**
 
 **✅ Physics方法状态**: 当前Physics方法工作正常，基于概率门控提供有效的事件筛选。未来可选优化为真实DVS物理仿真（累积阈值触发+时变权重），但当前实现已充分满足流程验证和对比实验需求。
+
+## ✅ 调制随机性功能 **[2025-08-28 新增]**
+
+**Physics方法增强**: 在权重图A(x,y)计算中添加桥形噪声调制器，在不确定区域(A≈0.5)引入随机性，在确定区域(A=0/1)保持稳定。
+
+**配置参数**: `configs/config.yaml` → `stochastic_strength: 0.1`（推荐设置）
+**实现位置**: `src/event_composer.py` → `_merge_events_physics`方法

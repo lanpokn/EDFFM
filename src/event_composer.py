@@ -91,6 +91,9 @@ class EventComposer:
         # 背景事件持续时间：固定100ms匹配炫光最大长度
         self.bg_duration_ms = 100.0  # 固定100ms
         
+        # 🆕 获取连续序号起始点
+        self.composition_start_id = self._get_next_composition_id()
+        
         print(f"🚀 EventComposer initialized (Dual-Stage Composition Mode):")
         print(f"  ✅ CORRECTED LOGIC - Three separate compositions:")
         print(f"    - Stage 1: Background + Light Source → Clean scene")
@@ -108,7 +111,36 @@ class EventComposer:
             print(f"      - Stage 2 (BG+Flare): {paths['stage2']}")
         print(f"  DSEC dataset size: {len(self.dsec_dataset)} time windows")
         print(f"  Background duration: {self.bg_duration_ms:.0f}ms (fixed)")
+        print(f"  Composition start ID: {self.composition_start_id} (continuing from existing files)")  # 🆕
         print(f"  Debug mode: {self.debug_mode}")
+    
+    def _get_next_composition_id(self) -> int:
+        """
+        获取下一个合成序列ID，基于现有文件数量
+        
+        Returns:
+            下一个可用的合成序列ID
+        """
+        import glob
+        
+        # 统计所有输出目录中的现有文件
+        max_existing = 0
+        
+        for method_name, paths in self.output_dirs.items():
+            # 统计每个方法和阶段的文件数量
+            stage1_files = glob.glob(os.path.join(paths['stage1'], "*.h5"))
+            stage2_files = glob.glob(os.path.join(paths['stage2'], "*.h5"))
+            
+            method_max = max(len(stage1_files), len(stage2_files))
+            max_existing = max(max_existing, method_max)
+            
+            if method_max > 0:
+                print(f"📁 Found {method_name} files: {len(stage1_files)} stage1 + {len(stage2_files)} stage2")
+        
+        if max_existing > 0:
+            print(f"🔢 Starting composition ID from: {max_existing}")
+        
+        return max_existing
     
     def load_flare_events(self, flare_file_path: str) -> np.ndarray:
         """
@@ -292,9 +324,33 @@ class EventComposer:
 
         # --- 3. 计算权重图 A(x,y) for events2 ---
         # A(x,y) 代表了 events2 在该像素的"主导权"或保留概率
-        A = Y_est2 / (Y_est1 + Y_est2 + epsilon)
         
-        # 保存权重图用于debug
+        # 3a. 首先计算确定性的A
+        A_det = Y_est2 / (Y_est1 + Y_est2 + epsilon)
+        
+        # 3b. (新功能) 应用调制随机性
+        stochastic_strength = float(params.get('stochastic_strength', 0.0))
+        
+        # 仅在强度大于0时应用随机性，以避免不必要的计算
+        if stochastic_strength > 0:
+            # 计算噪声幅度调制器，形状像一座桥，在0.5处为1，在0和1处为0
+            noise_scale_map = 4.0 * A_det * (1.0 - A_det)
+            
+            # 生成在 [-1, 1] 范围内的均匀随机噪声
+            random_noise = np.random.uniform(-1.0, 1.0, size=A_det.shape)
+            
+            # 应用噪声：噪声强度由 A_det 的值动态调制
+            # 在 A_det 接近 0.5 的地方，噪声最强
+            # 在 A_det 接近 0 或 1 的地方，噪声趋近于 0
+            A_stochastic = A_det + stochastic_strength * noise_scale_map * random_noise
+            
+            # 3c. 裁剪结果以确保 A 仍在 [0, 1] 的有效概率范围内
+            A = np.clip(A_stochastic, 0.0, 1.0)
+        else:
+            # 如果随机强度为0，则直接使用确定性的A
+            A = A_det
+        
+        # 保存权重图用于debug (现在它可以是A_det或A，取决于配置)
         self._last_weight_map = A
         
         # --- 4. 概率门控 ---
@@ -517,8 +573,9 @@ class EventComposer:
                                                     f"{method_name}_stage2_bg_flare",
                                                     f"Stage 2 ({method_name}): Background + Flare")
 
-            # --- 保存文件 ---
-            base_name = f"composed_{int(time.time() * 1000)}_{sequence_id:05d}"
+            # --- 保存文件 (🔄 修改: 使用连续序号) ---
+            actual_composition_id = self.composition_start_id + sequence_id
+            base_name = f"composed_{actual_composition_id:05d}"
             s1_path = os.path.join(self.output_dirs[method_name]['stage1'], f"{base_name}_bg_light.h5")
             s2_path = os.path.join(self.output_dirs[method_name]['stage2'], f"{base_name}_bg_flare.h5")
             
@@ -879,13 +936,15 @@ class EventComposer:
             common_bases = common_bases[:max_sequences]
         
         print(f"\n🚀 Found {len(common_bases)} matched flare/light-source sequences. Composing...")
+        print(f"📝 Composition numbering: {self.composition_start_id} to {self.composition_start_id + len(common_bases) - 1}")
         
         bg_light_files_out = []
         full_scene_files_out = []
         start_time = time.time()
         
         for i, base_name in enumerate(common_bases):
-            print(f"\n--- Composing sequence {i+1}/{len(common_bases)} ({base_name}) ---")
+            actual_composition_id = self.composition_start_id + i
+            print(f"\n--- Composing sequence {i+1}/{len(common_bases)} ({base_name}) (ID: {actual_composition_id}) ---")
             
             flare_filename = flare_bases[base_name]
             light_source_filename = light_source_bases[base_name]
